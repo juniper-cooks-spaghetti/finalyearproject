@@ -1,0 +1,248 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator erd {
+  provider = "prisma-erd-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String   @unique
+  clerkId   String   @unique
+  name      String?
+  bio       String?
+  image     String?
+  location  String?
+  website   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastSyncedAt DateTime @default(now())
+
+  role UserRole @default(USER)
+
+  // Learning progress and interactions
+  roadmaps     UserRoadmap[]
+
+  contentInteractions ContentLike[]
+
+  UserTopicCompletion UserTopicCompletion[]
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model Roadmap {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  category    String? // e.g., "Computing", "IC Design"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Changed to many-to-many relationship
+  topics               RoadmapTopic[]
+  userRoadmaps         UserRoadmap[]
+  recommendations      TopicRecommendation[]
+}
+
+model UserRoadmap {
+  id           String   @id @default(cuid())
+  completed    Boolean  @default(false) // Roadmap Completion Status
+  startedAt    DateTime @default(now())
+  public       Boolean  @default(false) // Control visibility of learning journey
+  shareableUrl String?  @unique // Custom URL for sharing journey
+  completedAt  DateTime?
+
+  // Relationships
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  roadmap   Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  roadmapId String
+
+  // Personalized topics
+  topics UserRoadmapTopic[]
+
+  @@unique([userId, roadmapId])
+}
+
+// Join table for personalized user roadmaps
+model UserRoadmapTopic {
+  id          String   @id @default(cuid())
+  customOrder Int? // Allow user to reorder topics in their roadmap
+  isSkipped   Boolean  @default(false) // Allow user to skip certain topics
+  addedAt     DateTime @default(now())
+
+  // Relationships
+  userRoadmap   UserRoadmap @relation(fields: [userRoadmapId], references: [id], onDelete: Cascade)
+  userRoadmapId String
+  
+
+  topic   Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  topicId String
+
+  @@unique([userRoadmapId, topicId])
+  @@index([userRoadmapId, customOrder])
+}
+
+model UserTopicCompletion {
+  id                String  @id @default(cuid())
+  status            String  @default("not_started")
+  difficultyRating  Int?
+  timeSpent         Int?
+  lastUpdated       DateTime @default(now())
+
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  topicId String
+
+  user    User    @relation(fields: [userId], references: [id])
+  userId String
+  
+  @@unique([topicId, userId])
+
+}
+
+// Create join table for roadmap-topic relationship
+model RoadmapTopic {
+  roadmap   Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  roadmapId String
+  topic     Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topicId   String
+
+  @@id([roadmapId, topicId])
+  @@index([roadmapId])
+  @@index([topicId])
+}
+
+model Topic {
+  id            String @id @default(cuid())
+  title         String
+  description   String
+  difficulty    Float? // Topic difficulty level
+  estimatedTime Int? // Estimated learning time in minutes
+  averageCompletionTime Float @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+
+  // Changed to many-to-many relationships
+  roadmaps      RoadmapTopic[]
+  contents      TopicContent[]
+
+  // Existing relationships
+  recommendedAfter    TopicRecommendation[] @relation("RecommendedAfter")
+  recommendedBefore   TopicRecommendation[] @relation("RecommendedBefore")
+  userRoadmapTopics   UserRoadmapTopic[]
+  ContentLike         ContentLike[]
+
+  UserTopicCompletion UserTopicCompletion[]
+
+  UserContentSuggestion UserContentSuggestion[]
+}
+
+// Create join table for topic-content relationship
+model TopicContent {
+  topic     Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topicId   String
+  content   Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  contentId String
+  addedAt   DateTime @default(now())
+
+  @@id([topicId, contentId])
+  @@index([topicId])
+  @@index([contentId])
+}
+
+// Content type enum
+enum ContentType {
+  VIDEO
+  ARTICLE
+  TUTORIAL
+  COURSE
+  BOOK
+  EXERCISE
+  DOCUMENTATION
+  PODCAST
+  OTHER
+}
+
+model Content {
+  id          String      @id @default(cuid())
+  title       String
+  type        ContentType @default(COURSE)
+  url         String
+  description String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Changed to many-to-many relationship
+  topics           TopicContent[]
+  userInteractions ContentLike[]
+}
+
+model UserContentSuggestion {
+  id          String      @id @default(cuid())
+  title       String
+  type        ContentType
+  url         String
+  description String
+  amount      Int         @default(1)
+
+  topic     Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topicId   String
+
+  @@unique([topicId, url])
+}
+
+model TopicRecommendation {
+  id     String @id @default(cuid())
+  weight Float  @default(1.0)
+
+  // Contextual information
+  transitionCount  Int      @default(1)
+  lastTransitionAt DateTime @default(now())
+
+  // Make roadmap relationship required
+  roadmap   Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  roadmapId String
+
+  // Existing relationships
+  afterTopic    Topic  @relation("RecommendedAfter", fields: [afterTopicId], references: [id], onDelete: Cascade)
+  afterTopicId  String
+  beforeTopic   Topic?  @relation("RecommendedBefore", fields: [beforeTopicId], references: [id], onDelete: Cascade)
+  beforeTopicId String?
+
+  @@index([beforeTopicId])
+  @@index([afterTopicId])
+  @@index([roadmapId])
+  @@unique([roadmapId, afterTopicId, beforeTopicId])
+}
+
+
+model ContentLike {
+  id        String   @id @default(cuid())
+  userId    String
+  topicId   String
+  contentId String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id])
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentId, topicId]) // Ensures one like per user per content
+  @@index([userId])
+  @@index([contentId])
+  @@index([topicId])
+}
