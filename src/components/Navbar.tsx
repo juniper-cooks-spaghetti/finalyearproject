@@ -5,7 +5,6 @@ import MobileNavbar from './MobileNavbar'
 import { currentUser } from '@clerk/nextjs/server';
 import { syncUser } from '@/actions/user.action';
 
-
 async function Navbar() {
   const user = await currentUser();
   if(user) await syncUser();
@@ -16,7 +15,7 @@ async function Navbar() {
             <div className="flex items-center justify-between h-16">
                 <div className="flex items-center">
                     <Link href="/" className="text-xl font-bold text-primary font-mono tracking-wider">
-                        CircuitLearn - Learners Teaching Learners
+                        CircuitLearn <span className="hidden sm:inline">- Learners Teaching Learners</span>
                     </Link>
                 </div>
 
@@ -25,7 +24,7 @@ async function Navbar() {
             </div>
         </div>
     </nav>
-          )
+  )
 }
 
 export default Navbar

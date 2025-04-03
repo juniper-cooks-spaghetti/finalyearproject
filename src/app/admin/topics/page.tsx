@@ -1,6 +1,6 @@
 import { checkAdmin } from "@/adminCheck";
 import { prisma } from "@/lib/prisma";
-import { TopicTable } from "@/components/TopicTable";
+import { TopicTable } from "../components/TopicTable";
 import { AdminSidebar } from "../components/AdminSidebar";
 
 export default async function TopicsPage() {

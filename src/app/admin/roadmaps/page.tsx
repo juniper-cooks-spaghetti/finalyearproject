@@ -1,6 +1,6 @@
 import { checkAdmin } from "@/adminCheck";
 import { prisma } from "@/lib/prisma";
-import { RoadmapTable } from "@/components/RoadmapTable";
+import { RoadmapTable } from "../components/RoadmapTable";
 import { AdminSidebar } from "../components/AdminSidebar";
 import { RebalanceButton } from "@/components/RebalanceButton";
 

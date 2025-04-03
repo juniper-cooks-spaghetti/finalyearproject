@@ -1,6 +1,6 @@
 import { checkAdmin } from "@/adminCheck";
 import { prisma } from "@/lib/prisma";
-import { UserTable } from "@/components/UserTable";
+import { UserTable } from "../components/UserTable";
 import { AdminSidebar } from "../components/AdminSidebar";
 
 export default async function UsersPage() {

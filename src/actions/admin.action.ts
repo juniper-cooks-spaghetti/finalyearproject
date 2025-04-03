@@ -220,10 +220,25 @@ export async function handleContentSuggestion(
       where: { id: suggestion.id }
     });
 
+    // Revalidate both paths to ensure data is fresh
+    revalidatePath('/admin/content');
     revalidatePath('/admin/suggestions');
     return { success: true };
   } catch (error) {
     console.error('Error handling content suggestion:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+export async function revalidateContentPage() {
+  'use server';
+  
+  try {
+    // Revalidate admin content page
+    revalidatePath('/admin/content');
+    return { success: true };
+  } catch (error) {
+    console.error('Error revalidating content page:', error);
     return { success: false, error: String(error) };
   }
 }

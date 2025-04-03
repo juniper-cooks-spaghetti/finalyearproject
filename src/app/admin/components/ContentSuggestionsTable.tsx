@@ -13,8 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Check, X, Loader2, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { handleContentSuggestion } from "@/actions/admin.action";
+import { handleContentSuggestion, revalidateContentPage } from "@/actions/admin.action";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useRouter } from "next/navigation";
 
 interface ContentSuggestion {
   id: string;
@@ -32,6 +33,7 @@ interface ContentSuggestion {
 export function ContentSuggestionsTable({ suggestions }: { suggestions: ContentSuggestion[] }) {
   const { toast } = useToast();
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const router = useRouter();
 
   const handleAction = async (suggestion: ContentSuggestion, action: 'approve' | 'reject') => {
     try {
@@ -55,7 +57,10 @@ export function ContentSuggestionsTable({ suggestions }: { suggestions: ContentS
             ? "Content has been added to the topic" 
             : "Suggestion has been rejected"
         });
-        window.location.reload();
+        
+        // Refresh the data using Next.js router
+        await revalidateContentPage();
+        router.refresh();
       } else {
         throw new Error(result.error);
       }

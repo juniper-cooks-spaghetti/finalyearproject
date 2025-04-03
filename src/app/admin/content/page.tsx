@@ -1,9 +1,7 @@
 import { checkAdmin } from "@/adminCheck";
 import { prisma } from "@/lib/prisma";
-import { ContentTable } from "@/components/ContentTable";
-import { ContentSuggestionsTable } from "@/components/ContentSuggestionsTable";
 import { AdminSidebar } from "../components/AdminSidebar";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ContentTabs } from "../components/ContentTabs";
 
 export default async function ContentPage() {
   await checkAdmin();
@@ -70,25 +68,8 @@ export default async function ContentPage() {
         <h1 className="text-3xl font-bold">Content Management</h1>
       </div>
 
-      <Tabs defaultValue="content" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="content">Content</TabsTrigger>
-          <TabsTrigger value="suggestions" className="relative">
-            Suggestions
-            {suggestions.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-[10px] rounded-full flex items-center justify-center">
-                {suggestions.length}
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="content" className="space-y-4">
-          <ContentTable content={content} />
-        </TabsContent>
-        <TabsContent value="suggestions" className="space-y-4">
-          <ContentSuggestionsTable suggestions={suggestions} />
-        </TabsContent>
-      </Tabs>
+      {/* Use the client component for tabs */}
+      <ContentTabs content={content} suggestions={suggestions} />
 
       <AdminSidebar />
     </main>
