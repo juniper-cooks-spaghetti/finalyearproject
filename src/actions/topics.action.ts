@@ -196,6 +196,62 @@ export async function addTopic({
         }
       });
 
+      // Update the transition count in recommendations
+      if (previousTopicId === null) {
+        // For initial topics
+        const existingRec = await tx.topicRecommendation.findFirst({
+          where: {
+            roadmapId,
+            afterTopicId: topicId,
+            beforeTopicId: null
+          }
+        });
+
+        if (existingRec) {
+          await tx.topicRecommendation.update({
+            where: { id: existingRec.id },
+            data: {
+              transitionCount: { increment: 1 },
+              lastTransitionAt: new Date()
+            }
+          });
+        } else {
+          await tx.topicRecommendation.create({
+            data: {
+              roadmapId,
+              afterTopicId: topicId,
+              beforeTopicId: null,
+              transitionCount: 1,
+              weight: 0.5,
+              lastTransitionAt: new Date()
+            }
+          });
+        }
+      } else {
+        // For subsequent topics (with a prerequisite)
+        await tx.topicRecommendation.upsert({
+          where: {
+            roadmapId_afterTopicId_beforeTopicId: {
+              roadmapId,
+              afterTopicId: topicId,
+              beforeTopicId: previousTopicId
+            }
+          },
+          update: {
+            transitionCount: { increment: 1 },
+            lastTransitionAt: new Date()
+          },
+          create: {
+            roadmapId,
+            afterTopicId: topicId,
+            beforeTopicId: previousTopicId,
+            transitionCount: 1,
+            weight: 0.5,
+            lastTransitionAt: new Date()
+          }
+        });
+      }
+
       return userRoadmapTopic;
     });
 
