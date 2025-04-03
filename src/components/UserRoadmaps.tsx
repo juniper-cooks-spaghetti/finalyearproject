@@ -1,7 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { Button } from "@/components/ui/button";
-import { Trash2, CheckCircle2 } from "lucide-react";
 import { RoadmapCard } from "./RoadmapCard";
 
 async function getUserRoadmaps() {

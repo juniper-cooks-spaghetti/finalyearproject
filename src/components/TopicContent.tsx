@@ -13,14 +13,12 @@ import type { Content } from "@/types/roadmap";
 import { TopicRecommendations } from './TopicRecommendations';
 import { SuggestContentDialog } from './SuggestContentDialog';
 import { RateTopicDialog } from './RateTopicDialog';
-import { deleteTopic, updateTopicStatus, forceRerender, getTopicCompletion, updateTopicCompletion } from '@/actions/topics.action';
+import { deleteTopic, getTopicCompletion, updateTopicCompletion } from '@/actions/topics.action';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getTopicContent, toggleContentLike } from "@/actions/content.action";
 import { useUser } from "@clerk/nextjs";
 import { SignInButton } from "@clerk/nextjs";
-import { usePathname } from "next/navigation";
 import { StatusIndicator } from "./StatusIndicator";
-import { revalidatePath } from "next/cache";
 import { useToast } from "@/hooks/use-toast";
 import { TopicStatus, CompletionState, TopicCompletion } from '@/types/roadmap';
 
@@ -38,6 +36,7 @@ interface TopicContentProps {
   previousTopicId?: string | null;
   onDelete?: (topicId: string) => void;
   readOnly?: boolean;
+  onDataChange?: () => void; // Add this prop to notify about data changes
 }
 
 function ContentItem({ 
@@ -155,7 +154,8 @@ export function TopicContent({
   roadmapId,
   previousTopicId = null,
   onDelete,
-  readOnly = false
+  readOnly = false,
+  onDataChange // New prop to handle data change notifications
 }: TopicContentProps) {
   const { toast } = useToast();
   const [content, setContent] = useState<Content[]>([]);
@@ -223,7 +223,10 @@ export function TopicContent({
   const handleClose = async () => {
     console.log('Dialog closing');
     try {
-      await forceRerender();
+      // Notify parent about potential changes before closing
+      if (onDataChange) {
+        onDataChange();
+      }
       onClose();
     } catch (error) {
       console.error('Error in handleClose:', error);
@@ -246,6 +249,11 @@ export function TopicContent({
           description: `Topic marked as ${newStatus.replace('_', ' ')}`,
           variant: "default",
         });
+        
+        // Notify parent about the data change
+        if (onDataChange) {
+          onDataChange();
+        }
       } else {
         throw new Error(result.error);
       }
@@ -284,6 +292,34 @@ export function TopicContent({
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const handleContentAdded = () => {
+    // Reload content after a new item is added
+    getTopicContent(topic.id).then(contentResult => {
+      if (contentResult.success && contentResult.content) {
+        // Sort content by likes and date
+        const sortedContent = [...contentResult.content].sort((a, b) => {
+          const likesA = a._count?.userInteractions || 0;
+          const likesB = b._count?.userInteractions || 0;
+          
+          if (likesB !== likesA) {
+            return likesB - likesA;
+          }
+          
+          const dateA = new Date(a.createdAt);
+          const dateB = new Date(b.createdAt);
+          return dateB.getTime() - dateA.getTime();
+        });
+        
+        setContent(sortedContent);
+        
+        // Notify parent about content changes
+        if (onDataChange) {
+          onDataChange();
+        }
+      }
+    });
   };
 
   const renderDialogTitle = () => (
@@ -376,7 +412,7 @@ export function TopicContent({
             isOpen={showSuggestDialog}
             onClose={() => setShowSuggestDialog(false)}
             topicId={topic.id}
-          />
+                      />
         )}
       </div>
     );

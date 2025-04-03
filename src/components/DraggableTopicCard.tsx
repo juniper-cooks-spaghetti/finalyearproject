@@ -15,7 +15,8 @@ interface Props {
   userTopic: UserRoadmapTopic;
   onClick: () => void;
   isDraggable?: boolean;
-  profileUserId?: string; // Add this prop
+  profileUserId?: string;
+  refreshKey?: number; // track refresh events
 }
 
 interface CompletionState {
@@ -28,7 +29,8 @@ export function DraggableTopicCard({
   userTopic, 
   onClick, 
   isDraggable = true,
-  profileUserId 
+  profileUserId,
+  refreshKey = 0 // Default value of 0
 }: Props) {
   const {
     attributes,
@@ -44,11 +46,12 @@ export function DraggableTopicCard({
   };
 
   const [completion, setCompletion] = useState<CompletionState>({ 
-    status: 'not_started', // Default status
+    status: 'not_started',
     difficultyRating: null,
     timeSpent: null
   });
 
+  // Load completion data with refresh support
   useEffect(() => {
     async function loadCompletion() {
       try {
@@ -64,8 +67,9 @@ export function DraggableTopicCard({
         console.error('Error loading completion:', error);
       }
     }
+    
     loadCompletion();
-  }, [userTopic.topic.id, profileUserId]);
+  }, [userTopic.topic.id, profileUserId, refreshKey]); // Add refreshKey as dependency
 
   return (
     <Card 

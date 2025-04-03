@@ -40,6 +40,7 @@ export default function RoadmapScroller({
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [canScroll, setCanScroll] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0); 
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -152,6 +153,11 @@ export default function RoadmapScroller({
     setSelectedTopic(topic);
   };
 
+  const refreshData = () => {
+    console.log('Refreshing roadmap data');
+    setRefreshKey(prevKey => prevKey + 1);
+  };
+
   return (
     <div className="relative group">
       {canScroll && (
@@ -201,6 +207,7 @@ export default function RoadmapScroller({
                     onClick={() => handleTopicClick(userTopic.topic)}
                     isDraggable={!readOnly}
                     profileUserId={profileUserId} // Pass it down
+                    refreshKey={refreshKey} // Pass the refresh key
                   />
                 ))}
               </SortableContext>
@@ -213,6 +220,7 @@ export default function RoadmapScroller({
                 onClick={() => handleTopicClick(userTopic.topic)}
                 isDraggable={false}
                 profileUserId={profileUserId} // Pass it down
+                refreshKey={refreshKey} // Pass the refresh key
               />
             ))
           )}
@@ -289,7 +297,9 @@ export default function RoadmapScroller({
           onDelete={readOnly ? undefined : (topicId) => {
             setLocalTopics(prev => prev.filter(t => t.topic.id !== topicId));
             setSelectedTopic(null);
+            refreshData(); // Refresh after delete
           }}
+          onDataChange={refreshData} // Pass the refresh function
         />
       )}
     </div>

@@ -4,6 +4,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { CreateRoadmapButton } from "@/components/CreateRoadmapDialog";
 import { Toaster } from "@/components/ui/toaster";
 import { redirectAdminToAdminDashboard } from "@/adminCheck";
+import { DraggableCreateButton } from "@/components/DraggableCreateButton";
 
 export default async function Dashboard() {
   await redirectAdminToAdminDashboard();
@@ -27,8 +28,11 @@ export default async function Dashboard() {
           </div>
         </div>
       </div>
+      
+      {/* Add the draggable floating button for mobile/tablet */}
+      {user && <DraggableCreateButton />}
+      
       <Toaster />
     </main>
-    
   );
 }
