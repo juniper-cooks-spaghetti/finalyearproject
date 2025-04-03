@@ -3,8 +3,11 @@ import UserRoadmaps from "@/components/UserRoadmaps";
 import { currentUser } from "@clerk/nextjs/server";
 import { CreateRoadmapButton } from "@/components/CreateRoadmapDialog";
 import { Toaster } from "@/components/ui/toaster";
+import { redirectAdminToAdminDashboard } from "@/adminCheck";
 
 export default async function Dashboard() {
+  await redirectAdminToAdminDashboard();
+
   const user = await currentUser();
 
   return (

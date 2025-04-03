@@ -3,10 +3,15 @@ import { ArrowRight, BookOpen, Brain, BarChart } from "lucide-react";
 import Link from "next/link";
 import { currentUser } from "@clerk/nextjs/server";
 import { SignUpButton } from "@clerk/nextjs";
+import { redirectAdminToAdminDashboard } from "@/adminCheck";
 
 export default async function LandingPage() {
+  // Check if user is admin and redirect if necessary
+  await redirectAdminToAdminDashboard();
+  
+  // Continue with normal page rendering for non-admin users
   const user = await currentUser();
-
+  
   return (
     <div className="flex flex-col min-h-screen">
       <main className="flex-1">
