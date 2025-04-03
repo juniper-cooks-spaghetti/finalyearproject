@@ -242,3 +242,39 @@ export async function revalidateContentPage() {
     return { success: false, error: String(error) };
   }
 }
+
+export async function revalidateRoadmapsPage() {
+  'use server';
+  
+  try {
+    revalidatePath('/admin/roadmaps');
+    return { success: true };
+  } catch (error) {
+    console.error('Error revalidating roadmaps page:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+export async function revalidateTopicsPage() {
+  'use server';
+  
+  try {
+    revalidatePath('/admin/topics');
+    return { success: true };
+  } catch (error) {
+    console.error('Error revalidating topics page:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+export async function revalidateUsersPage() {
+  'use server';
+  
+  try {
+    revalidatePath('/admin/users');
+    return { success: true };
+  } catch (error) {
+    console.error('Error revalidating users page:', error);
+    return { success: false, error: String(error) };
+  }
+}

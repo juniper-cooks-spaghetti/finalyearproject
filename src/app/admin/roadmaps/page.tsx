@@ -1,8 +1,7 @@
 import { checkAdmin } from "@/adminCheck";
 import { prisma } from "@/lib/prisma";
-import { RoadmapTable } from "../components/RoadmapTable";
 import { AdminSidebar } from "../components/AdminSidebar";
-import { RebalanceButton } from "@/components/RebalanceButton";
+import { RoadmapTabs } from "../components/RoadmapTabs";
 
 export default async function RoadmapsPage() {
   await checkAdmin();
@@ -35,12 +34,7 @@ export default async function RoadmapsPage() {
 
   return (
     <main className="container mx-auto py-8 space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Roadmap Management</h1>
-        <RebalanceButton />
-      </div>
-
-      <RoadmapTable roadmaps={roadmaps} />
+      <RoadmapTabs roadmaps={roadmaps} />
       <AdminSidebar />
     </main>
   );

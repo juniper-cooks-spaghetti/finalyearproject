@@ -1,7 +1,7 @@
 import { checkAdmin } from "@/adminCheck";
 import { prisma } from "@/lib/prisma";
-import { UserTable } from "../components/UserTable";
 import { AdminSidebar } from "../components/AdminSidebar";
+import { UserTabs } from "../components/UserTabs";
 
 export default async function UsersPage() {
   await checkAdmin();
@@ -34,13 +34,8 @@ export default async function UsersPage() {
 
   return (
     <main className="container mx-auto py-8 space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">User Management</h1>
-      </div>
-
-      <UserTable users={formattedUsers} />
+      <UserTabs users={formattedUsers} />
       <AdminSidebar />
-      
     </main>
   );
 }

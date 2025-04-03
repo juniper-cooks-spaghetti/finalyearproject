@@ -1,7 +1,7 @@
 import { checkAdmin } from "@/adminCheck";
 import { prisma } from "@/lib/prisma";
-import { TopicTable } from "../components/TopicTable";
 import { AdminSidebar } from "../components/AdminSidebar";
+import { TopicTabs } from "../components/TopicTabs";
 
 export default async function TopicsPage() {
   await checkAdmin();
@@ -45,11 +45,7 @@ export default async function TopicsPage() {
 
   return (
     <main className="container mx-auto py-8 space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Topic Management</h1>
-      </div>
-
-      <TopicTable topics={topics} />
+      <TopicTabs topics={topics} />
       <AdminSidebar />
     </main>
   );
