@@ -181,7 +181,25 @@ export function TopicContent({
         ]);
 
         if (contentResult.success && contentResult.content) {
-          setContent(contentResult.content);
+          // Sort content by: 
+          // 1. Like count (descending)
+          // 2. Creation date (descending = newest first)
+          const sortedContent = [...contentResult.content].sort((a, b) => {
+            // First compare by like count
+            const likesA = a._count?.userInteractions || 0;
+            const likesB = b._count?.userInteractions || 0;
+            
+            if (likesB !== likesA) {
+              return likesB - likesA; // Higher likes first
+            }
+            
+            // If like counts are equal, compare by creation date
+            const dateA = new Date(a.createdAt);
+            const dateB = new Date(b.createdAt);
+            return dateB.getTime() - dateA.getTime(); // Newer first
+          });
+          
+          setContent(sortedContent);
         }
 
         if (completionResult.success && completionResult.completion) {
