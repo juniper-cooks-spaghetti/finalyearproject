@@ -12,12 +12,36 @@ export async function searchTopics(
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
 
-    // Get existing topics in the user's roadmap
+    // Get database user ID
+    const dbUser = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      select: { id: true }
+    });
+    
+    if (!dbUser) throw new Error("User not found");
+    
+    // Get the user's roadmap for this specific roadmap
+    const userRoadmap = await prisma.userRoadmap.findFirst({
+      where: {
+        userId: dbUser.id,
+        roadmapId: roadmapId
+      },
+      select: {
+        id: true
+      }
+    });
+    
+    if (!userRoadmap) {
+      return {
+        success: false,
+        error: "User roadmap not found"
+      };
+    }
+    
+    // Get topics already in the user's roadmap
     const existingTopics = await prisma.userRoadmapTopic.findMany({
       where: {
-        userRoadmap: {
-          roadmapId
-        }
+        userRoadmapId: userRoadmap.id
       },
       select: {
         topicId: true
@@ -26,10 +50,19 @@ export async function searchTopics(
 
     const existingTopicIds = existingTopics.map(t => t.topicId);
 
-    // Search topics with case-insensitive matching
+    // Search for ALL topics that:
+    // 1. Are not already in the user's roadmap (existingTopicIds)
+    // 2. Match the search query
     const topics = await prisma.topic.findMany({
       where: {
         AND: [
+          // Must not already be in the user's roadmap
+          {
+            id: {
+              notIn: existingTopicIds
+            }
+          },
+          // Must match the search query
           {
             OR: [
               {
@@ -45,11 +78,6 @@ export async function searchTopics(
                 }
               }
             ]
-          },
-          {
-            id: {
-              notIn: existingTopicIds
-            }
           }
         ]
       },
@@ -72,6 +100,13 @@ export async function searchTopics(
         title: 'asc'
       },
       take: limit
+    });
+
+    // Add debugging logs
+    console.log(`Search results for "${query}" in roadmap ${roadmapId}:`, {
+      userRoadmapId: userRoadmap.id,
+      existingTopicsCount: existingTopicIds.length,
+      matchingTopicsCount: topics.length,
     });
 
     return {
