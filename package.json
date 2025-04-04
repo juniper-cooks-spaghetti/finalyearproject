@@ -43,6 +43,7 @@
     "react": "^18",
     "react-dom": "^18",
     "react-hook-form": "^7.55.0",
+    "recharts": "^2.15.2",
     "svix": "^1.62.0",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
