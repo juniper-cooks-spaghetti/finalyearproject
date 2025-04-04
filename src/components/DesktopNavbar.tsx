@@ -21,12 +21,6 @@ async function DesktopNavbar() {
     <div className="hidden md:flex items-center space-x-4">
       <ModeToggle />
 
-      <Button variant="ghost" className="flex items-center gap-2" asChild>
-        <Link href="/dashboard">
-          <HomeIcon className="w-4 h-4" />
-          <span className="hidden lg:inline">Dashboard</span>
-        </Link>
-      </Button>
 
 
       {isAdmin && (
@@ -39,6 +33,12 @@ async function DesktopNavbar() {
       )}
       {user ? (
         <>
+          <Button variant="ghost" className="flex items-center gap-2" asChild>
+            <Link href="/dashboard">
+              <HomeIcon className="w-4 h-4" />
+              <span className="hidden lg:inline">Dashboard</span>
+            </Link>
+          </Button>
           <Button variant="ghost" className="flex items-center gap-2" asChild>
             <Link
               href={`/profile/${

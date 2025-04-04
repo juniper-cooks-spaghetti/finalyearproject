@@ -46,14 +46,12 @@ export function RoadmapTabs({ roadmaps }: RoadmapTabsProps) {
 
   return (
     <div className="space-y-4">
-      {/* Page header with rebalance button */}
+      {/* Page header with aligned tabs */}
       <div className="flex justify-between items-center">
+        
         <h1 className="text-3xl font-bold">Roadmap Management</h1>
-        <RebalanceButton />
-      </div>
-      
-      {/* Compact tabs in right corner */}
-      <div className="flex justify-end">
+        
+        {/* Tabs aligned with title */}
         <div className="inline-flex bg-muted rounded-lg p-1">
           <button
             onClick={() => handleTabChange("all")}
@@ -81,7 +79,6 @@ export function RoadmapTabs({ roadmaps }: RoadmapTabsProps) {
           ))}
         </div>
       </div>
-      
       {/* Content area */}
       <div className="w-full">
         <RoadmapTable roadmaps={getFilteredRoadmaps()} />

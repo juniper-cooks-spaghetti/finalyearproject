@@ -11,12 +11,14 @@ interface Tab {
 interface TabNavigationProps {
   tabs: Tab[];
   defaultTab: string;
+  title: string;
   children: (activeTab: string) => ReactNode;
 }
 
 export function TabNavigation({ 
   tabs, 
-  defaultTab, 
+  defaultTab,
+  title,
   children 
 }: TabNavigationProps) {
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
@@ -39,8 +41,11 @@ export function TabNavigation({
 
   return (
     <div className="space-y-4">
-      {/* Compact tabs in right corner */}
-      <div className="flex justify-end">
+      {/* Page header with aligned tabs */}
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">{title}</h1>
+        
+        {/* Tabs aligned with title */}
         <div className="inline-flex bg-muted rounded-lg p-1">
           {tabs.map(tab => (
             <button
@@ -54,7 +59,7 @@ export function TabNavigation({
             >
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-[10px] rounded-full flex items-center justify-center text-white">
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] rounded-full flex items-center justify-center font-medium">
                   {tab.count}
                 </span>
               )}

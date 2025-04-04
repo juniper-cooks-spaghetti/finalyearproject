@@ -16,7 +16,7 @@ export function UserTabs({ users }: UserTabsProps) {
     setMounted(true);
   }, []);
 
-  // Debug tab change
+  // Handle tab change
   const handleTabChange = (value: string) => {
     console.log(`Tab changed to: ${value}`);
     setActiveTab(value);
@@ -33,6 +33,7 @@ export function UserTabs({ users }: UserTabsProps) {
   };
 
   // Count users per role
+  const totalCount = users.length;
   const adminCount = users.filter(u => u.role === 'ADMIN').length;
   const userCount = users.filter(u => u.role === 'USER').length;
 
@@ -43,23 +44,24 @@ export function UserTabs({ users }: UserTabsProps) {
 
   return (
     <div className="space-y-4">
-      {/* Page header */}
+      {/* Page header with aligned tabs */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">User Management</h1>
-      </div>
-      
-      {/* Compact tabs in right corner */}
-      <div className="flex justify-end">
+        
+        {/* Tabs aligned with title */}
         <div className="inline-flex bg-muted rounded-lg p-1">
           <button
             onClick={() => handleTabChange("all")}
-            className={`px-3 py-1 text-sm rounded-md transition-colors ${
+            className={`px-3 py-1 text-sm rounded-md transition-colors relative ${
               activeTab === "all" 
                 ? "bg-background shadow text-foreground" 
                 : "hover:bg-muted-foreground/10"
             }`}
           >
             All Users
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] rounded-full flex items-center justify-center font-medium">
+              {totalCount}
+            </span>
           </button>
           
           <button
@@ -71,9 +73,11 @@ export function UserTabs({ users }: UserTabsProps) {
             }`}
           >
             Admins
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-[10px] rounded-full flex items-center justify-center text-white">
-              {adminCount}
-            </span>
+            {adminCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] rounded-full flex items-center justify-center font-medium">
+                {adminCount}
+              </span>
+            )}
           </button>
           
           <button
@@ -85,9 +89,11 @@ export function UserTabs({ users }: UserTabsProps) {
             }`}
           >
             Users
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-[10px] rounded-full flex items-center justify-center text-white">
-              {userCount}
-            </span>
+            {userCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] rounded-full flex items-center justify-center font-medium">
+                {userCount}
+              </span>
+            )}
           </button>
         </div>
       </div>

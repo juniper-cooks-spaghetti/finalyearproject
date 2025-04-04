@@ -28,7 +28,23 @@ const CATEGORIES = [
   "Computing",
   "Circuitry",
   "Energy",
-  "Physics"
+  "Physics",
+  "Signal Processing",
+  "Control Systems",
+  "Telecommunications",
+  "Power Electronics",
+  "Embedded Systems",
+  "Microelectronics",
+  "RF Engineering",
+  "VLSI Design",
+  "Photonics",
+  "Robotics",
+  "Biomedical Electronics",
+  "Machine Learning",
+  "Electromagnetic Theory",
+  "Power Systems",
+  "Digital Systems",
+  "Wireless Communications"
 ];
 
 interface CreateRoadmapDialogProps {

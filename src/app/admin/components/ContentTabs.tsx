@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContentTable } from "@/app/admin/components/ContentTable";
 import { ContentSuggestionsTable } from "@/app/admin/components/ContentSuggestionsTable";
 
@@ -38,8 +37,11 @@ export function ContentTabs({
 
   return (
     <div className="space-y-4">
-      {/* Compact tabs in right corner */}
-      <div className="flex justify-end">
+      {/* Page header with aligned tabs */}
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">Content Management</h1>
+        
+        {/* Tabs aligned with title */}
         <div className="inline-flex bg-muted rounded-lg p-1">
           <button
             onClick={() => handleTabChange("content")}
@@ -62,7 +64,7 @@ export function ContentTabs({
           >
             Suggestions
             {suggestions.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-[10px] rounded-full flex items-center justify-center text-white">
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground text-[10px] rounded-full flex items-center justify-center font-medium">
                 {suggestions.length}
               </span>
             )}
