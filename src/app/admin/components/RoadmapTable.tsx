@@ -366,12 +366,6 @@ export function RoadmapTable({ roadmaps }: { roadmaps: Roadmap[] }) {
                 Edit Roadmap
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => router.push(`/admin/roadmaps/${roadmap.id}`)}
-              >
-                <Edit className="mr-2 h-4 w-4" />
-                Edit Topics
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 onClick={() => handleRebalance(roadmap.id)}
                 disabled={rebalancingId === roadmap.id}
               >

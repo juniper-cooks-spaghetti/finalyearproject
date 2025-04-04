@@ -7,12 +7,14 @@ import { ContentSuggestionsTable } from "@/app/admin/components/ContentSuggestio
 interface ContentTabsProps {
   content: any[];
   suggestions: any[];
+  topics: any[];
   defaultTab?: string;
 }
 
 export function ContentTabs({ 
   content, 
   suggestions, 
+  topics = [],
   defaultTab = "content" 
 }: ContentTabsProps) {
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
