@@ -146,6 +146,7 @@ function ContentItem({
   );
 }
 
+// In TopicContent.tsx
 export function TopicContent({ 
   isOpen, 
   onClose, 
@@ -155,8 +156,20 @@ export function TopicContent({
   previousTopicId = null,
   onDelete,
   readOnly = false,
-  onDataChange // New prop to handle data change notifications
+  onDataChange
 }: TopicContentProps) {
+  // Add state to track recommendation updates
+  const [recommendationsRefreshKey, setRecommendationsRefreshKey] = useState(0);
+  
+  // Add function to refresh recommendations
+  const refreshRecommendations = () => {
+    setRecommendationsRefreshKey(prev => prev + 1);
+    // Also notify parent
+    if (onDataChange) {
+      onDataChange();
+    }
+  };
+  
   const { toast } = useToast();
   const [content, setContent] = useState<Content[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -234,6 +247,7 @@ export function TopicContent({
     }
   };
 
+  // Modify the existing handlers to call refreshRecommendations
   const handleStatusChange = async (newStatus: TopicStatus) => {
     try {
       const result = await updateTopicCompletion(topic.id, {
@@ -254,6 +268,7 @@ export function TopicContent({
         if (onDataChange) {
           onDataChange();
         }
+        refreshRecommendations();
       } else {
         throw new Error(result.error);
       }
@@ -264,6 +279,10 @@ export function TopicContent({
         variant: "destructive",
       });
     }
+  };
+  
+  const handleRecommendationAdded = () => {
+    refreshRecommendations();
   };
 
   const handleDelete = async () => {
@@ -440,7 +459,10 @@ export function TopicContent({
                 <TopicRecommendations 
                   currentTopicId={topic.id}
                   roadmapId={roadmapId}
+                  userRoadmapId={userRoadmapId} // Add this prop
                   onSelectRecommendation={() => {}}
+                  onRecommendationAdded={handleRecommendationAdded}
+                  key={recommendationsRefreshKey} // Add this for forcing re-render
                 />
               </div>
             )}

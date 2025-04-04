@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { RoadmapCard } from "./RoadmapCard";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -26,6 +26,14 @@ export default function UserRoadmaps() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const roadmapsPerPage = 3;
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleDataChange = useCallback(() => {
+    // Increment refresh key to force re-render
+    setRefreshKey(prev => prev + 1);
+    
+    // You could also refetch data here if needed
+  }, []);
 
   useEffect(() => {
     // Fetch roadmap data on component mount
@@ -49,7 +57,7 @@ export default function UserRoadmaps() {
     }
     
     fetchRoadmaps();
-  }, []);
+  }, [refreshKey]);
 
   // Calculate total pages
   const totalPages = Math.ceil((userRoadmaps?.length || 0) / roadmapsPerPage);
@@ -119,7 +127,7 @@ export default function UserRoadmaps() {
     <div>
       <div className="space-y-6">
         {currentRoadmaps.map((userRoadmap) => (
-          <RoadmapCard key={userRoadmap.id} userRoadmap={userRoadmap} />
+          <RoadmapCard key={userRoadmap.id} userRoadmap={userRoadmap} onDataChange={handleDataChange} />
         ))}
       </div>
       

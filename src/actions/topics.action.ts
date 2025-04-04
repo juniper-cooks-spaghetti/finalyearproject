@@ -19,80 +19,118 @@ export async function deleteTopic(topicId: string, userRoadmapId: string) {
       }
     });
     revalidatePath("/dashboard");
-    return { success: true };
+        return { success: true };
   } catch (error) {
     console.error("Error deleting topic:", error);
-    throw error;
+    return { success: false, error: "Failed to delete topic" };
   }
 }
 
-export async function addTopic({
-  id,
-  title,
-  description,
-  difficulty,
-  estimatedTime,
-  content,
-  userRoadmapId,
-  roadmapId,
-  previousTopicId = null
-}: {
-  id?: string;
+export async function addTopic(params: {
+  id: string;
   title: string;
   description: string;
-  difficulty: number;
-  estimatedTime: number;
+  difficulty?: number;
+  estimatedTime?: number;
   content?: any[];
-  userRoadmapId: string;
+  userRoadmapId?: string; // Make this optional for error handling
   roadmapId: string;
   previousTopicId?: string | null;
 }) {
   try {
-    console.log("Adding topic in action:", {
-      id,
-      title,
-      roadmapId,
-      previousTopicId
-    });
-
-    // Check if user is authenticated
+    console.log("Adding topic:", params);
+    
+    // Validate userRoadmapId first
+    if (!params.userRoadmapId) {
+      console.error("userRoadmapId is missing or empty:", params.userRoadmapId);
+      
+      // If we don't have userRoadmapId, we need to find it based on roadmapId and userId
+      const { userId } = await auth();
+      if (!userId) {
+        return { success: false, error: "Unauthorized" };
+      }
+      
+      const dbUser = await prisma.user.findUnique({
+        where: { clerkId: userId },
+        select: { id: true }
+      });
+      
+      if (!dbUser) {
+        return { success: false, error: "User not found" };
+      }
+      
+      // Find the user's roadmap for this specific roadmap
+      const userRoadmap = await prisma.userRoadmap.findFirst({
+        where: {
+          userId: dbUser.id,
+          roadmapId: params.roadmapId
+        },
+        select: { id: true }
+      });
+      
+      if (!userRoadmap) {
+        // Create a new userRoadmap if it doesn't exist
+        const newUserRoadmap = await prisma.userRoadmap.create({
+          data: {
+            userId: dbUser.id,
+            roadmapId: params.roadmapId,
+            startedAt: new Date()
+          }
+        });
+        params.userRoadmapId = newUserRoadmap.id;
+      } else {
+        params.userRoadmapId = userRoadmap.id;
+      }
+      
+      console.log("Found/created userRoadmapId:", params.userRoadmapId);
+    }
+    
+    // Continue with existing code...
     const { userId } = await auth();
     if (!userId) {
-      return { success: false, error: "Not authenticated" };
+      return { success: false, error: "Unauthorized" };
     }
 
-    // Get DB user ID from Clerk ID
     const dbUser = await prisma.user.findUnique({
-      where: { clerkId: userId }
+      where: { clerkId: userId },
+      select: { id: true }
     });
+
     if (!dbUser) {
       return { success: false, error: "User not found" };
     }
 
-    // Find or create the topic
-    let topicId = id;
+    // If the topic doesn't exist, create it first
+    let topicId = params.id;
     if (!topicId) {
-      // Create new topic if no ID provided
+      // Create a new topic only if no ID is provided
       const newTopic = await prisma.topic.create({
         data: {
-          title,
-          description,
-          difficulty,
-          estimatedTime,
-          roadmaps: {
-            create: {
-              roadmapId
-            }
-          }
+          title: params.title,
+          description: params.description,
+          difficulty: params.difficulty || null,
+          estimatedTime: params.estimatedTime || null,
         }
       });
       topicId = newTopic.id;
-    } else {
-      // Check if the topic exists in the roadmap
+
+      // If content was provided, link it to the new topic
+      if (params.content && params.content.length > 0) {
+        for (const content of params.content) {
+          await prisma.topicContent.create({
+            data: {
+              topicId: newTopic.id,
+              contentId: content.id
+            }
+          });
+        }
+      }
+
+      // Add the topic to the base roadmap if it isn't there already
       const existingRoadmapTopic = await prisma.roadmapTopic.findUnique({
         where: {
           roadmapId_topicId: {
-            roadmapId,
+            roadmapId: params.roadmapId,
             topicId
           }
         }
@@ -101,7 +139,7 @@ export async function addTopic({
       if (!existingRoadmapTopic) {
         await prisma.roadmapTopic.create({
           data: {
-            roadmapId,
+            roadmapId: params.roadmapId,
             topicId
           }
         });
@@ -109,12 +147,40 @@ export async function addTopic({
     }
 
     // Check if this topic is already in user's roadmap
-    const existingUserRoadmapTopic = await prisma.userRoadmapTopic.findUnique({
+    const existingUserRoadmapTopic = await prisma.userRoadmapTopic.findFirst({
       where: {
-        userRoadmapId_topicId: {
-          userRoadmapId,
-          topicId
-        }
+        userRoadmapId: params.userRoadmapId,
+        topicId: topicId
+      }
+    });
+
+    if (existingUserRoadmapTopic) {
+      console.log("Topic already exists in roadmap, returning existing:", existingUserRoadmapTopic.id);
+      return { 
+        success: true, 
+        topic: existingUserRoadmapTopic 
+      };
+    }
+
+    // Get the last topic's order
+    const lastTopic = await prisma.userRoadmapTopic.findFirst({
+      where: {
+        userRoadmapId: params.userRoadmapId
+      },
+      orderBy: {
+        customOrder: 'desc'
+      }
+    });
+    
+    const nextOrder = lastTopic ? (lastTopic.customOrder || 0) + 10 : 10;
+
+    // Add the topic to the user's roadmap
+    const userRoadmapTopic = await prisma.userRoadmapTopic.create({
+      data: {
+        userRoadmapId: params.userRoadmapId,
+        topicId: topicId,
+        customOrder: nextOrder,
+        isSkipped: false
       },
       include: {
         topic: {
@@ -129,139 +195,53 @@ export async function addTopic({
       }
     });
 
-    if (existingUserRoadmapTopic) {
-      console.log("Topic already exists in roadmap, returning existing:", existingUserRoadmapTopic.id);
-      return { 
-        success: true, 
-        topic: existingUserRoadmapTopic 
-      };
-    }
-
-    // Get the last topic's order
-    const lastTopicOrder = previousTopicId 
-      ? await prisma.userRoadmapTopic.findUnique({
-          where: {
-            userRoadmapId_topicId: {
-              userRoadmapId,
-              topicId: previousTopicId
-            }
-          },
-          select: {
-            customOrder: true
-          }
-        })
-      : await prisma.userRoadmapTopic.findFirst({
-          where: { userRoadmapId },
-          orderBy: { customOrder: 'desc' },
-          select: { customOrder: true }
-        });
-
-    const newCustomOrder = (lastTopicOrder?.customOrder ?? 0) + 10;
-
-    // Create the UserRoadmapTopic with a transaction to avoid partial operations
-    const userRoadmapTopic = await prisma.$transaction(async (tx) => {
-      // Create the user roadmap topic
-      const userRoadmapTopic = await tx.userRoadmapTopic.create({
-        data: {
-          userRoadmapId,
-          topicId,
-          customOrder: newCustomOrder
-        },
-        include: {
-          topic: {
-            include: {
-              contents: {
-                include: {
-                  content: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      // Create the topic completion entry
-      await tx.userTopicCompletion.upsert({
+    // If this is from a recommendation, log the transition for future recommendations
+    if (params.previousTopicId) {
+      const existingRecommendation = await prisma.topicRecommendation.findFirst({
         where: {
-          topicId_userId: {
-            topicId,
-            userId: dbUser.id
-          }
-        },
-        update: {}, // No updates if exists
-        create: {
-          userId: dbUser.id,
-          topicId,
-          status: 'not_started'
+          roadmapId: params.roadmapId,
+          beforeTopicId: params.previousTopicId,
+          afterTopicId: topicId
         }
       });
 
-      // Update the transition count in recommendations
-      if (previousTopicId === null) {
-        // For initial topics
-        const existingRec = await tx.topicRecommendation.findFirst({
-          where: {
-            roadmapId,
-            afterTopicId: topicId,
-            beforeTopicId: null
-          }
-        });
-
-        if (existingRec) {
-          await tx.topicRecommendation.update({
-            where: { id: existingRec.id },
-            data: {
-              transitionCount: { increment: 1 },
-              lastTransitionAt: new Date()
-            }
-          });
-        } else {
-          await tx.topicRecommendation.create({
-            data: {
-              roadmapId,
-              afterTopicId: topicId,
-              beforeTopicId: null,
-              transitionCount: 1,
-              weight: 0.5,
-              lastTransitionAt: new Date()
-            }
-          });
-        }
-      } else {
-        // For subsequent topics (with a prerequisite)
-        await tx.topicRecommendation.upsert({
-          where: {
-            roadmapId_afterTopicId_beforeTopicId: {
-              roadmapId,
-              afterTopicId: topicId,
-              beforeTopicId: previousTopicId
-            }
-          },
-          update: {
+      if (existingRecommendation) {
+        // Update existing recommendation
+        await prisma.topicRecommendation.update({
+          where: { id: existingRecommendation.id },
+          data: {
             transitionCount: { increment: 1 },
             lastTransitionAt: new Date()
-          },
-          create: {
-            roadmapId,
+          }
+        });
+      } else {
+        // Create new recommendation
+        await prisma.topicRecommendation.create({
+          data: {
+            roadmapId: params.roadmapId,
+            beforeTopicId: params.previousTopicId,
             afterTopicId: topicId,
-            beforeTopicId: previousTopicId,
             transitionCount: 1,
             weight: 0.5,
             lastTransitionAt: new Date()
           }
         });
       }
+    }
 
-      return userRoadmapTopic;
-    });
+    // Revalidate paths
+    revalidatePath(`/roadmap/${params.roadmapId}`);
+    revalidatePath('/dashboard');
 
-    revalidatePath("/dashboard");
-    return { success: true, topic: userRoadmapTopic };
+    return { 
+      success: true, 
+      topic: userRoadmapTopic 
+    };
   } catch (error) {
-    console.error('Error adding topic:', error);
+    console.error("Error adding topic:", error);
     return { 
       success: false, 
-      error: error instanceof Error ? error.message : "An unknown error occurred" 
+      error: "Failed to add topic: " + (error instanceof Error ? error.message : String(error)) 
     };
   }
 }
@@ -472,13 +452,13 @@ export async function updateTopicCompletion(
       }
     });
 
-    return { 
+        return { 
       success: true, 
       completion: updatedCompletion || { status: 'not_started' }
     };
   } catch (error) {
     console.error("Error updating topic completion:", error);
-    return { success: false, error: String(error) };
+    return { success: false, error: "Failed to update topic completion" };
   }
 }
 

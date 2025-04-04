@@ -91,7 +91,11 @@ export function AddTopicDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Generate a temporary ID for the topic
+      const clientId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      
       const result = await addTopicAction({
+        id: clientId, // Add this line with the client generated ID
         title,
         description,
         difficulty,
@@ -99,7 +103,7 @@ export function AddTopicDialog({
         userRoadmapId,
         roadmapId,
         previousTopicId: lastTopicId
-      }) as AddTopicResult;  // Add type assertion here
+      }) as AddTopicResult;
       
       if (result.success && result.topic) {
         const transformedTopic = {
@@ -178,94 +182,72 @@ export function AddTopicDialog({
   };
 
   const handleRecommendationSelect = async (recommendation: any) => {
-    console.log("Recommendation received:", recommendation);
+    console.log("Recommendation received in AddTopicDialog:", recommendation);
     
     try {
       // Check if we received a topic directly instead of a recommendation
       if (!recommendation) {
-        console.log("Recommendation is undefined/null");
+        console.log("Error: Recommendation is undefined/null");
         throw new Error("Invalid recommendation selected");
       }
       
+      // Extract the topic based on the recommendation structure
+      let topic;
+      
       // If we received a topic directly (not a recommendation object)
       if (!recommendation.afterTopic && recommendation.id && recommendation.title) {
-        console.log("Received a topic directly instead of a recommendation");
-        const topic = recommendation;
-        
-        const result = await addTopicAction({
-          id: topic.id,
-          title: topic.title || "Untitled Topic",
-          description: topic.description || "",
-          difficulty: topic.difficulty || 3,
-          estimatedTime: topic.estimatedTime || 60,
-          content: topic.contents?.map((tc: any) => tc.content) || [],
-          userRoadmapId,
-          roadmapId,
-          previousTopicId: lastTopicId
-        }) as AddTopicResult;
-        
-        if (result.success && result.topic) {
-          const transformedTopic = {
-            id: result.topic.topic.id,
-            title: result.topic.topic.title,
-            description: result.topic.topic.description,
-            difficulty: result.topic.topic.difficulty ?? 3, // Default if null
-            estimatedTime: result.topic.topic.estimatedTime ?? 60, // Default if null 
-            content: result.topic.topic.contents?.map(c => c.content) || [],
-            previousTopicId: lastTopicId
-          };
-          
-          await onAdd(transformedTopic);
-          toast({
-            title: "Topic added",
-            description: `${topic.title} has been added to your roadmap.`
-          });
-          onClose();
-        } else {
-          throw new Error(result.error || "Failed to add recommended topic");
-        }
+        console.log("Handling direct topic object");
+        topic = recommendation;
       }
       // Original recommendation handling
       else if (recommendation.afterTopic) {
-        console.log("Received a recommendation with afterTopic");
-        const topic = recommendation.afterTopic;
-        
-        const result = await addTopicAction({
-          id: topic.id,
-          title: topic.title || "Untitled Topic",
-          description: topic.description || "",
-          difficulty: topic.difficulty || 3,
-          estimatedTime: topic.estimatedTime || 60,
-          content: topic.contents?.map((tc: any) => tc.content) || [],
-          userRoadmapId,
-          roadmapId,
-          previousTopicId: lastTopicId
-        }) as AddTopicResult;
-        
-        if (result.success && result.topic) {
-          const transformedTopic = {
-            id: result.topic.topic.id,
-            title: result.topic.topic.title,
-            description: result.topic.topic.description,
-            difficulty: result.topic.topic.difficulty ?? 3, // Default if null
-            estimatedTime: result.topic.topic.estimatedTime ?? 60, // Default if null 
-            content: result.topic.topic.contents?.map(c => c.content) || [],
-            previousTopicId: lastTopicId
-          };
-          
-          await onAdd(transformedTopic);
-          toast({
-            title: "Topic added",
-            description: `${topic.title} has been added to your roadmap.`
-          });
-          onClose();
-        } else {
-          throw new Error(result.error || "Failed to add recommended topic");
-        }
+        console.log("Handling recommendation with afterTopic");
+        topic = recommendation.afterTopic;
       } 
       else {
         console.log("Unknown recommendation structure:", recommendation);
         throw new Error("Invalid recommendation format");
+      }
+      
+      console.log("Adding topic:", {
+        id: topic.id,
+        title: topic.title,
+        userRoadmapId,
+        roadmapId,
+      });
+      
+      // One single point of calling addTopicAction
+      const result = await addTopicAction({
+        id: topic.id,
+        title: topic.title || "Untitled Topic",
+        description: topic.description || "",
+        difficulty: topic.difficulty || 3,
+        estimatedTime: topic.estimatedTime || 60,
+        content: topic.contents?.map((tc: any) => tc.content) || [],
+        userRoadmapId,
+        roadmapId,
+        previousTopicId: lastTopicId
+      }) as AddTopicResult;
+      
+      if (result.success && result.topic) {
+        const transformedTopic = {
+          id: result.topic.topic.id,
+          title: result.topic.topic.title,
+          description: result.topic.topic.description,
+          difficulty: result.topic.topic.difficulty ?? 3,
+          estimatedTime: result.topic.topic.estimatedTime ?? 60,
+          content: result.topic.topic.contents?.map(c => c.content) || [],
+          previousTopicId: lastTopicId
+        };
+        
+        await onAdd(transformedTopic);
+        toast({
+          title: "Topic added",
+          description: `${topic.title} has been added to your roadmap.`
+        });
+        onClose();
+      } else {
+        throw new Error(result.error || "Failed to add recommended topic");
       }
     } catch (error) {
       console.error("Error in handleRecommendationSelect:", error);
@@ -394,8 +376,9 @@ export function AddTopicDialog({
           <TabsContent value="recommended" className="space-y-4">
             <div className="space-y-4">
               <TopicRecommendations
-                currentTopicId={lastTopicId || null} // Explicitly pass null for empty roadmaps
+                currentTopicId={lastTopicId || null}
                 roadmapId={roadmapId}
+                userRoadmapId={userRoadmapId} // Add this line to fix the error
                 onSelectRecommendation={handleRecommendationSelect}
               />
             </div>

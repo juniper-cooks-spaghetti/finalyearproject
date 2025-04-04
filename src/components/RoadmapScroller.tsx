@@ -26,6 +26,7 @@ interface RoadmapScrollerProps {
   roadmapId: string;
   readOnly?: boolean;
   profileUserId?: string; // Add this prop
+  onDataChange?: () => void; // Add this prop
 }
 
 export default function RoadmapScroller({ 
@@ -33,7 +34,8 @@ export default function RoadmapScroller({
   userRoadmapId, 
   roadmapId, 
   readOnly = false,
-  profileUserId // Add this prop
+  profileUserId, // Add this prop
+  onDataChange // Add this prop
 }: RoadmapScrollerProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [localTopics, setLocalTopics] = useState<UserRoadmapTopic[]>(topics);
@@ -154,8 +156,10 @@ export default function RoadmapScroller({
   };
 
   const refreshData = () => {
-    console.log('Refreshing roadmap data');
-    setRefreshKey(prevKey => prevKey + 1);
+    // Refresh local state if needed
+    
+    // Notify parent of data change
+    if (onDataChange) onDataChange();
   };
 
   return (

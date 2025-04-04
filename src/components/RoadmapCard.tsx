@@ -10,9 +10,10 @@ import { deleteRoadmap, toggleRoadmapCompletion, toggleRoadmapVisibility } from 
 
 interface RoadmapCardProps {
   userRoadmap: any; // Type this properly based on your prisma types
+  onDataChange?: () => void; // Added this prop
 }
 
-export function RoadmapCard({ userRoadmap }: RoadmapCardProps) {
+export function RoadmapCard({ userRoadmap, onDataChange }: RoadmapCardProps) {
   const { toast } = useToast();
   const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
@@ -30,6 +31,9 @@ export function RoadmapCard({ userRoadmap }: RoadmapCardProps) {
         title: "Roadmap deleted",
         description: "The roadmap has been successfully deleted.",
       });
+      
+      // Notify parent of data change
+      if (onDataChange) onDataChange();
       
       router.refresh();
     } catch (error) {
@@ -55,6 +59,9 @@ export function RoadmapCard({ userRoadmap }: RoadmapCardProps) {
           : "Roadmap marked as in progress.",
       });
       
+      // Notify parent of data change
+      if (onDataChange) onDataChange();
+      
       router.refresh();
     } catch (error) {
       toast({
@@ -78,6 +85,9 @@ export function RoadmapCard({ userRoadmap }: RoadmapCardProps) {
           ? "Others can now view your roadmap" 
           : "Your roadmap is now private",
       });
+      
+      // Notify parent of data change
+      if (onDataChange) onDataChange();
       
       router.refresh();
     } catch (error) {
@@ -141,6 +151,7 @@ export function RoadmapCard({ userRoadmap }: RoadmapCardProps) {
         topics={userRoadmap.topics} 
         userRoadmapId={userRoadmap.id}
         roadmapId={userRoadmap.roadmapId}
+        onDataChange={onDataChange} // Pass the onDataChange to RoadmapScroller too
       />
     </div>
   );
