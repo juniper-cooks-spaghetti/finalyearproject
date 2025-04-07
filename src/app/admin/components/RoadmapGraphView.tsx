@@ -102,7 +102,7 @@ export function RoadmapGraphView() {
   const roadmapStatusData = [
     { name: 'Completed', value: analytics.overall.totalCompletedUserRoadmaps },
     { name: 'In Progress', value: analytics.overall.inProgressUserRoadmaps },
-    { name: 'Abandoned', value: analytics.overall.abandonedUserRoadmaps },
+    { name: 'Inactive', value: analytics.overall.abandonedUserRoadmaps }, // Changed from 'Abandoned' to 'Inactive'
   ];
 
   return (
@@ -181,6 +181,11 @@ export function RoadmapGraphView() {
                   />
                 </PieChart>
               </ResponsiveContainer>
+            </div>
+            
+            {/* Add explanatory note for Inactive roadmaps */}
+            <div className="mt-4 text-xs text-muted-foreground">
+              * Inactive roadmaps are those that haven't shown any activity for over 30 days and are not marked as completed.
             </div>
             
             <div className="mt-4 flex justify-between items-center">

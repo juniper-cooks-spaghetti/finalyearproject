@@ -294,35 +294,97 @@ export function TopicGraphView() {
             <AlertTriangle className="mr-2 h-5 w-5" />
             Most Challenging Topics
           </CardTitle>
-          <CardDescription>Topics with the highest difficulty ratings from users</CardDescription>
+          <CardDescription>Topics with the highest difficulty ratings and completion times</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={analytics.difficultyRatings.slice(0, 5)}
-                margin={{
-                  top: 5,
-                  right: 30,
-                  left: 20,
-                  bottom: 60,
-                }}
-                layout="vertical"
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" domain={[0, 5]} />
-                <YAxis 
-                  dataKey="title" 
-                  type="category"
-                  width={150}
-                  tick={{ fontSize: 12 }}
-                />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="averageDifficulty" name="Difficulty Rating (0-5)" fill="#FF8042" />
-                <Bar dataKey="averageTimeSpent" name="Avg. Time (min)" fill="#0088FE" />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Difficulty Rating Chart */}
+            <div>
+              <h3 className="text-sm font-medium mb-4 flex items-center">
+                <AlertTriangle className="mr-2 h-4 w-4" />
+                Difficulty Rating (0-5)
+              </h3>
+              <div className="h-[250px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={analytics.difficultyRatings.slice(0, 5)}
+                    margin={{ top: 5, right: 10, left: 20, bottom: 60 }}
+                    layout="vertical"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" domain={[0, 5]} />
+                    <YAxis 
+                      dataKey="title" 
+                      type="category"
+                      width={120}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <Tooltip formatter={(value) => {
+                      // Check if value is a number before calling toFixed
+                      if (typeof value === 'number') {
+                        return [`${value.toFixed(1)}/5`, 'Difficulty'];
+                      }
+                      // Return a fallback for non-number values
+                      return [`${value}/5`, 'Difficulty'];
+                    }} />
+                    <Bar dataKey="averageDifficulty" name="Difficulty" fill="#FF8042" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Average Time Chart */}
+            <div>
+              <h3 className="text-sm font-medium mb-4 flex items-center">
+                <Clock className="mr-2 h-4 w-4" />
+                Average Completion Time (minutes)
+              </h3>
+              <div className="h-[250px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={analytics.difficultyRatings.slice(0, 5)}
+                    margin={{ top: 5, right: 10, left: 20, bottom: 60 }}
+                    layout="vertical"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis 
+                      dataKey="title" 
+                      type="category"
+                      width={120}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <Tooltip formatter={(value) => [`${value} min`, 'Time']} />
+                    <Bar dataKey="averageTimeSpent" name="Time (min)" fill="#0088FE" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* Optional: Summary Table */}
+          <div className="mt-6">
+            <h3 className="text-sm font-medium mb-3">Summary of Most Challenging Topics</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 font-medium">Topic</th>
+                    <th className="text-right py-2 font-medium">Difficulty</th>
+                    <th className="text-right py-2 font-medium">Time (min)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analytics.difficultyRatings.slice(0, 5).map((topic) => (
+                    <tr key={topic.id} className="border-b">
+                      <td className="py-2 truncate max-w-[200px]">{topic.title}</td>
+                      <td className="text-right py-2">{topic.averageDifficulty.toFixed(1)}/5</td>
+                      <td className="text-right py-2">{Math.round(topic.averageTimeSpent)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </CardContent>
       </Card>
