@@ -27,13 +27,13 @@ export async function deleteTopic(topicId: string, userRoadmapId: string) {
 }
 
 export async function addTopic(params: {
-  id: string;
+  id?: string; // Make id optional to handle new topic creation
   title: string;
   description: string;
   difficulty?: number;
   estimatedTime?: number;
   content?: any[];
-  userRoadmapId?: string; // Make this optional for error handling
+  userRoadmapId?: string;
   roadmapId: string;
   previousTopicId?: string | null;
 }) {
@@ -85,7 +85,6 @@ export async function addTopic(params: {
       console.log("Found/created userRoadmapId:", params.userRoadmapId);
     }
     
-    // Continue with existing code...
     const { userId } = await auth();
     if (!userId) {
       return { success: false, error: "Unauthorized" };
@@ -100,19 +99,31 @@ export async function addTopic(params: {
       return { success: false, error: "User not found" };
     }
 
-    // If the topic doesn't exist, create it first
     let topicId = params.id;
+    
+    // STEP 1: Create/find the topic
     if (!topicId) {
-      // Create a new topic only if no ID is provided
+      // For a new topic, create it first, then create the RoadmapTopic connection
+      console.log("Creating new topic:", params.title);
+      
+      // Create a new topic with connection to roadmap
       const newTopic = await prisma.topic.create({
         data: {
           title: params.title,
           description: params.description,
           difficulty: params.difficulty || null,
           estimatedTime: params.estimatedTime || null,
+          // Create the RoadmapTopic relationship in the same transaction
+          roadmaps: {
+            create: {
+              roadmapId: params.roadmapId
+            }
+          }
         }
       });
+      
       topicId = newTopic.id;
+      console.log("Created new topic with ID:", topicId);
 
       // If content was provided, link it to the new topic
       if (params.content && params.content.length > 0) {
@@ -125,8 +136,8 @@ export async function addTopic(params: {
           });
         }
       }
-
-      // Add the topic to the base roadmap if it isn't there already
+    } else {
+      // For existing topics, ensure connection to the roadmap exists
       const existingRoadmapTopic = await prisma.roadmapTopic.findUnique({
         where: {
           roadmapId_topicId: {
@@ -156,13 +167,32 @@ export async function addTopic(params: {
 
     if (existingUserRoadmapTopic) {
       console.log("Topic already exists in roadmap, returning existing:", existingUserRoadmapTopic.id);
+      
+      // Fetch the full topic data to return
+      const fullTopic = await prisma.userRoadmapTopic.findUnique({
+        where: { id: existingUserRoadmapTopic.id },
+        include: {
+          topic: {
+            include: {
+              contents: {
+                include: {
+                  content: true
+                }
+              }
+            }
+          }
+        }
+      });
+      
       return { 
         success: true, 
-        topic: existingUserRoadmapTopic 
+        topic: fullTopic 
       };
     }
 
-    // Get the last topic's order
+    // STEP 2: Add the topic to the user's roadmap
+    
+    // Get the last topic's order for proper positioning
     const lastTopic = await prisma.userRoadmapTopic.findFirst({
       where: {
         userRoadmapId: params.userRoadmapId
@@ -229,7 +259,7 @@ export async function addTopic(params: {
       }
     }
 
-    // Revalidate paths
+    // Revalidate paths to update UI
     revalidatePath(`/roadmap/${params.roadmapId}`);
     revalidatePath('/dashboard');
 

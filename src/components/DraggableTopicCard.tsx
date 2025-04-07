@@ -71,6 +71,64 @@ export function DraggableTopicCard({
     loadCompletion();
   }, [userTopic.topic.id, profileUserId, refreshKey]); // Add refreshKey as dependency
 
+  // Add new event listeners for topic status changes
+  useEffect(() => {
+    // Handler for status changes
+    const handleStatusChange = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail.topicId === userTopic.topic.id) {
+        console.log('Topic status changed event received:', detail);
+        setCompletion(prev => ({
+          ...prev,
+          status: detail.status
+        }));
+      }
+    };
+    
+    // Handler for topic ratings
+    const handleTopicRated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail.topicId === userTopic.topic.id) {
+        console.log('Topic rated event received:', detail);
+        setCompletion(prev => ({
+          ...prev,
+          difficultyRating: detail.rating,
+          timeSpent: detail.timeSpent
+        }));
+      }
+    };
+    
+    // Handler for content interactions (which might affect completion)
+    const handleContentInteraction = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail.topicId === userTopic.topic.id) {
+        console.log('Content interaction event received:', detail);
+        // Refresh the completion data for this topic
+        getTopicCompletion(userTopic.topic.id, profileUserId).then(result => {
+          if (result.success && result.completion) {
+            setCompletion({
+              status: result.completion.status as TopicStatus,
+              difficultyRating: result.completion.difficultyRating,
+              timeSpent: result.completion.timeSpent
+            });
+          }
+        });
+      }
+    };
+
+    // Add event listeners
+    window.addEventListener('topic-status-changed', handleStatusChange);
+    window.addEventListener('topic-rated', handleTopicRated);
+    window.addEventListener('topic-content-interaction', handleContentInteraction);
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('topic-status-changed', handleStatusChange);
+      window.removeEventListener('topic-rated', handleTopicRated);
+      window.removeEventListener('topic-content-interaction', handleContentInteraction);
+    };
+  }, [userTopic.topic.id, profileUserId]);
+
   return (
     <Card 
       ref={setNodeRef}

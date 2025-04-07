@@ -1,12 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
-import { ImagePlusIcon } from "lucide-react";
+import { ImagePlusIcon, Loader2 } from "lucide-react";
 import { useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -20,20 +20,22 @@ interface EditProfileDialogProps {
     website: string;
   };
   setFormData: (data: any) => void;
-  onSubmit: () => void;
+  onSubmit: () => Promise<void>;
   currentImage?: string | null;
-  previewImage: string | null;
+  previewImage?: string | null;
+  isSubmitting?: boolean; // Add this prop
   onImageChange: (file: File) => void;
 }
 
-export function EditProfileDialog({ 
-  isOpen, 
-  onClose, 
-  formData, 
-  setFormData, 
+export function EditProfileDialog({
+  isOpen,
+  onClose,
+  formData,
+  setFormData,
   onSubmit,
   currentImage,
   previewImage,
+  isSubmitting = false, // Default to false
   onImageChange
 }: EditProfileDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,10 +70,18 @@ export function EditProfileDialog({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      // Only allow closing if not submitting
+      if (!isSubmitting && !open) {
+        onClose();
+      }
+    }}>
+      <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Edit Profile</DialogTitle>
+          <DialogDescription>
+            Update your profile information
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           {/* Profile Image Section */}
@@ -136,7 +146,28 @@ export function EditProfileDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={onSubmit}>Save Changes</Button>
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={onClose}
+            disabled={isSubmitting} // Disable when submitting
+          >
+            Cancel
+          </Button>
+          <Button 
+            type="button" 
+            onClick={onSubmit}
+            disabled={isSubmitting} // Disable when submitting
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save changes"
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

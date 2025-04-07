@@ -12,16 +12,24 @@ interface CreateRoadmapData {
   isPublic: boolean;
 }
 
+// Update the addRoadmap function with more detailed error handling
+
 export async function addRoadmap(data: CreateRoadmapData) {
   try {
     const { userId: clerkId } = await auth();
     if (!clerkId) throw new Error("Unauthorized");
 
+    console.log("Creating roadmap for user:", clerkId);
+    console.log("Roadmap data:", data);
+
     const user = await prisma.user.findUnique({
       where: { clerkId }
     });
 
-    if (!user) throw new Error("User not found");
+    if (!user) {
+      console.error("User not found for clerkId:", clerkId);
+      throw new Error("User not found");
+    }
 
     const roadmap = await prisma.roadmap.create({
       data: {
@@ -31,13 +39,18 @@ export async function addRoadmap(data: CreateRoadmapData) {
       }
     });
 
-    await prisma.userRoadmap.create({
+    console.log("Created roadmap:", roadmap.id);
+
+    const userRoadmap = await prisma.userRoadmap.create({
       data: {
         userId: user.id,
         roadmapId: roadmap.id,
-        public: data.isPublic
+        public: data.isPublic,
+        startedAt: new Date() // Make sure to set a startedAt date
       }
     });
+
+    console.log("Created user roadmap:", userRoadmap.id);
 
     revalidatePath('/dashboard');
     return roadmap;

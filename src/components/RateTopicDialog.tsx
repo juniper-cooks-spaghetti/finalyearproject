@@ -10,12 +10,14 @@ import { useToast } from "@/hooks/use-toast";
 import { updateTopicCompletion } from "@/actions/topics.action";
 import { updateTopicStatistics } from "@/actions/topics.action";
 
+// Add the onRated callback to the component props
 interface RateTopicDialogProps {
   isOpen: boolean;
   onClose: () => void;
   topicId: string;
   initialRating?: number;
   initialTimeSpent?: number;
+  onRated?: (rating: number, timeSpent: number) => void; // Add this prop
 }
 
 export function RateTopicDialog({
@@ -23,40 +25,45 @@ export function RateTopicDialog({
   onClose,
   topicId,
   initialRating = 3,
-  initialTimeSpent = 0
+  initialTimeSpent = 60,
+  onRated // Include this in the component props
 }: RateTopicDialogProps) {
   const { toast } = useToast();
   const [difficultyRating, setDifficultyRating] = useState(initialRating);
   const [timeSpent, setTimeSpent] = useState(initialTimeSpent);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
       setIsSubmitting(true);
       
-      // First update the user's completion
+      // Add the status parameter to maintain the existing status
       const result = await updateTopicCompletion(topicId, {
-        status: 'completed',
+        status: "in_progress", // Default status when rating a topic
         difficultyRating,
         timeSpent
       });
-
+      
       if (result.success) {
-        // Then update topic statistics
-        await updateTopicStatistics(topicId);
+        // Call the onRated callback if it exists
+        if (onRated) {
+          onRated(difficultyRating, timeSpent);
+        }
         
         toast({
-          title: "Rating Submitted",
-          description: "Thank you for rating this topic!"
+          title: "Rating saved",
+          description: "Your topic rating has been saved.",
         });
+        
         onClose();
       } else {
-        throw new Error(result.error);
+        throw new Error(result.error || "Failed to update rating");
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to submit rating. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to save rating. Please try again.",
         variant: "destructive"
       });
     } finally {

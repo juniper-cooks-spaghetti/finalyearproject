@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { RoadmapCard } from "./RoadmapCard";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import useSWR from 'swr';
 
 // Define the type for our roadmap data
 type UserRoadmap = {
@@ -20,45 +21,28 @@ type UserRoadmap = {
   // Other properties...
 };
 
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
 export default function UserRoadmaps() {
-  const [userRoadmaps, setUserRoadmaps] = useState<UserRoadmap[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const roadmapsPerPage = 3;
-  const [refreshKey, setRefreshKey] = useState(0);
+  // Use SWR for data fetching with auto-revalidation
+  const { data: userRoadmaps = [], error, isLoading, mutate } = useSWR<UserRoadmap[]>(
+    '/api/user-roadmaps', 
+    fetcher, 
+    { 
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 5000
+    }
+  );
 
   const handleDataChange = useCallback(() => {
-    // Increment refresh key to force re-render
-    setRefreshKey(prev => prev + 1);
-    
-    // You could also refetch data here if needed
-  }, []);
+    // Manually trigger a revalidation
+    mutate();
+  }, [mutate]);
 
-  useEffect(() => {
-    // Fetch roadmap data on component mount
-    async function fetchRoadmaps() {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/user-roadmaps');
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch roadmaps');
-        }
-        
-        const data = await response.json();
-        setUserRoadmaps(data);
-      } catch (error) {
-        console.error('Error fetching roadmaps:', error);
-        setError('Failed to load roadmaps. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    }
-    
-    fetchRoadmaps();
-  }, [refreshKey]);
-
+  const [currentPage, setCurrentPage] = useState(1);
+  const roadmapsPerPage = 3;
+  
   // Calculate total pages
   const totalPages = Math.ceil((userRoadmaps?.length || 0) / roadmapsPerPage);
   
@@ -67,25 +51,38 @@ export default function UserRoadmaps() {
   const indexOfFirstRoadmap = indexOfLastRoadmap - roadmapsPerPage;
   const currentRoadmaps = userRoadmaps.slice(indexOfFirstRoadmap, indexOfLastRoadmap);
   
-  // Change page
+  // Navigation logic - unchanged
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
-  
-  // Go to previous page
-  const previousPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
+  const previousPage = () => currentPage > 1 && setCurrentPage(currentPage - 1);
+  const nextPage = () => currentPage < totalPages && setCurrentPage(currentPage + 1);
+
+  useEffect(() => {
+    // Combined event listener for all roadmap changes
+    const handleRoadmapChange = () => {
+      console.log("Roadmap data changed, refreshing...");
+      mutate();
+    };
+    
+    // Listen for both events
+    window.addEventListener('roadmap-created', handleRoadmapChange);
+    window.addEventListener('roadmap-changed', handleRoadmapChange);
+    
+    // Clean up event listeners on unmount
+    return () => {
+      window.removeEventListener('roadmap-created', handleRoadmapChange);
+      window.removeEventListener('roadmap-changed', handleRoadmapChange);
+    };
+  }, [mutate]);
+
+  // Re-adjust current page when total pages change
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
     }
-  };
-  
-  // Go to next page
-  const nextPage = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
+  }, [totalPages, currentPage]);
 
   // Loading state
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         {[...Array(3)].map((_, i) => (
@@ -108,7 +105,7 @@ export default function UserRoadmaps() {
     return (
       <div className="p-6 rounded-lg border bg-card shadow-sm">
         <h2 className="text-xl font-semibold text-center text-red-500">Error</h2>
-        <p className="text-muted-foreground text-center">{error}</p>
+        <p className="text-muted-foreground text-center">Failed to load roadmaps. Please try again later.</p>
       </div>
     );
   }

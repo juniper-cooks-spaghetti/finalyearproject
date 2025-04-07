@@ -5,17 +5,15 @@ import { Trash2, CheckCircle2, Globe, Lock } from "lucide-react";
 import RoadmapScroller from "./RoadmapScroller";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { deleteRoadmap, toggleRoadmapCompletion, toggleRoadmapVisibility } from "@/actions/roadmap.action";
 
 interface RoadmapCardProps {
   userRoadmap: any; // Type this properly based on your prisma types
-  onDataChange?: () => void; // Added this prop
+  onDataChange?: () => void; // This is now used consistently
 }
 
 export function RoadmapCard({ userRoadmap, onDataChange }: RoadmapCardProps) {
   const { toast } = useToast();
-  const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [isTogglingVisibility, setIsTogglingVisibility] = useState(false);
@@ -32,10 +30,13 @@ export function RoadmapCard({ userRoadmap, onDataChange }: RoadmapCardProps) {
         description: "The roadmap has been successfully deleted.",
       });
       
-      // Notify parent of data change
+      // ONLY call onDataChange - remove router.refresh()
       if (onDataChange) onDataChange();
       
-      router.refresh();
+      // Dispatch a custom event for broader notification
+      window.dispatchEvent(new CustomEvent('roadmap-changed', { 
+        detail: { action: 'delete', id: userRoadmap.id }
+      }));
     } catch (error) {
       toast({
         variant: "destructive",
@@ -59,10 +60,13 @@ export function RoadmapCard({ userRoadmap, onDataChange }: RoadmapCardProps) {
           : "Roadmap marked as in progress.",
       });
       
-      // Notify parent of data change
+      // ONLY call onDataChange - remove router.refresh()
       if (onDataChange) onDataChange();
       
-      router.refresh();
+      // Dispatch a custom event for broader notification
+      window.dispatchEvent(new CustomEvent('roadmap-changed', { 
+        detail: { action: 'update', id: userRoadmap.id }
+      }));
     } catch (error) {
       toast({
         variant: "destructive",
@@ -86,10 +90,13 @@ export function RoadmapCard({ userRoadmap, onDataChange }: RoadmapCardProps) {
           : "Your roadmap is now private",
       });
       
-      // Notify parent of data change
+      // ONLY call onDataChange - remove router.refresh()
       if (onDataChange) onDataChange();
       
-      router.refresh();
+      // Dispatch a custom event for broader notification
+      window.dispatchEvent(new CustomEvent('roadmap-changed', { 
+        detail: { action: 'update', id: userRoadmap.id }
+      }));
     } catch (error) {
       toast({
         variant: "destructive",

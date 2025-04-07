@@ -14,6 +14,7 @@ import { searchRoadmaps } from '@/actions/search.action';
 import { useDebounce } from "@/hooks/useDebounce";
 import { SearchResultCard } from './SearchResultCard';
 import { useToast } from "@/hooks/use-toast";
+import { useRouter } from 'next/navigation';
 
 interface RoadmapSearchResult {
   id: string;
@@ -56,6 +57,12 @@ interface CreateRoadmapDialogProps {
 export function CreateRoadmapButton() {
   const [showDialog, setShowDialog] = useState(false);
 
+  const handleRoadmapCreated = () => {
+    // Only dispatch the event - no router.refresh()
+    const event = new CustomEvent('roadmap-created');
+    window.dispatchEvent(event);
+  };
+
   return (
     <>
       <Button
@@ -70,6 +77,7 @@ export function CreateRoadmapButton() {
       <CreateRoadmapDialog
         isOpen={showDialog}
         onClose={() => setShowDialog(false)}
+        onRoadmapCreated={handleRoadmapCreated}
       />
     </>
   );
@@ -120,16 +128,27 @@ export function CreateRoadmapDialog({ isOpen, onClose, onRoadmapCreated }: Creat
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !description || !category) return;
+    if (!title || !description || !category) {
+      toast({
+        title: "Missing information",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
 
     try {
       setIsSubmitting(true);
-      await addRoadmap({
+      console.log("Creating roadmap:", { title, description, category, isPublic });
+      
+      const result = await addRoadmap({
         title,
         description,
         category,
         isPublic
       });
+      
+      console.log("Roadmap creation result:", result);
       
       onRoadmapCreated?.();
       resetForm();
@@ -142,7 +161,7 @@ export function CreateRoadmapDialog({ isOpen, onClose, onRoadmapCreated }: Creat
       console.error('Error creating roadmap:', error);
       toast({
         title: "Error",
-        description: "Failed to create roadmap",
+        description: error instanceof Error ? error.message : "Failed to create roadmap",
         variant: "destructive"
       });
     } finally {
@@ -153,7 +172,10 @@ export function CreateRoadmapDialog({ isOpen, onClose, onRoadmapCreated }: Creat
   const handleSearchSelect = async (roadmap: RoadmapSearchResult) => {
     try {
       setIsSubmitting(true);
-      await addUserRoadmap(roadmap.id, isPublic);
+      console.log("Adding existing roadmap:", roadmap.id);
+      
+      const result = await addUserRoadmap(roadmap.id, isPublic);
+      console.log("Add user roadmap result:", result);
       
       onRoadmapCreated?.();
       onClose();
@@ -162,9 +184,10 @@ export function CreateRoadmapDialog({ isOpen, onClose, onRoadmapCreated }: Creat
         description: "Roadmap added to your collection"
       });
     } catch (error) {
+      console.error('Error adding roadmap:', error);
       toast({
         title: "Error",
-        description: "Failed to add roadmap",
+        description: error instanceof Error ? error.message : "Failed to add roadmap",
         variant: "destructive"
       });
     } finally {

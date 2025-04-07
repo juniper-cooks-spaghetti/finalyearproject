@@ -91,11 +91,18 @@ export function AddTopicDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // Generate a temporary ID for the topic
-      const clientId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      console.log("Creating new topic:", {
+        title,
+        description,
+        difficulty,
+        estimatedTime,
+        userRoadmapId,
+        roadmapId,
+        previousTopicId: lastTopicId
+      });
       
+      // No need for an id field when creating a new topic
       const result = await addTopicAction({
-        id: clientId, // Add this line with the client generated ID
         title,
         description,
         difficulty,
@@ -105,18 +112,23 @@ export function AddTopicDialog({
         previousTopicId: lastTopicId
       }) as AddTopicResult;
       
+      console.log("Create topic result:", result);
+      
       if (result.success && result.topic) {
+        // Transform the topic structure to match what onAdd expects
         const transformedTopic = {
           id: result.topic.topic.id,
           title: result.topic.topic.title,
           description: result.topic.topic.description,
-          difficulty: result.topic.topic.difficulty ?? 3, // Use nullish coalescing to provide default
-          estimatedTime: result.topic.topic.estimatedTime ?? 60, // Use nullish coalescing to provide default
+          difficulty: result.topic.topic.difficulty ?? 3,
+          estimatedTime: result.topic.topic.estimatedTime ?? 60,
           content: result.topic.topic.contents?.map(c => c.content) || [],
           previousTopicId: lastTopicId
         };
         
+        // Pass the transformed topic to the onAdd callback
         await onAdd(transformedTopic);
+        
         toast({
           title: "Topic added",
           description: `${title} has been added to your roadmap.`
@@ -127,6 +139,7 @@ export function AddTopicDialog({
         throw new Error(result.error || "Failed to add topic");
       }
     } catch (error) {
+      console.error("Error creating topic:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to add topic. Please try again.",

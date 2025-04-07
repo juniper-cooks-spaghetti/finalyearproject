@@ -31,6 +31,7 @@ function ProfilePageClient({ user, completedRoadmaps, inProgressRoadmaps }: Prof
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Add this state variable
   const [editForm, setEditForm] = useState({
     name: user.name || '',
     bio: user.bio || '',
@@ -39,7 +40,12 @@ function ProfilePageClient({ user, completedRoadmaps, inProgressRoadmaps }: Prof
   });
 
   const handleEditSubmit = async () => {
+    // Prevent multiple submissions
+    if (isSubmitting) return;
+    
     try {
+      setIsSubmitting(true); // Set flag to true at the beginning
+
       const formData = new FormData();
       Object.entries(editForm).forEach(([key, value]) => {
         formData.append(key, value);
@@ -77,6 +83,8 @@ function ProfilePageClient({ user, completedRoadmaps, inProgressRoadmaps }: Prof
         title: "Error",
         description: "Failed to update profile. Please try again.",
       });
+    } finally {
+      setIsSubmitting(false); // Always reset the flag when done
     }
   };
 
@@ -176,15 +184,18 @@ function ProfilePageClient({ user, completedRoadmaps, inProgressRoadmaps }: Prof
       <EditProfileDialog 
         isOpen={showEditDialog}
         onClose={() => {
-          setShowEditDialog(false);
-          setProfileImage(null);
-          setPreviewImageUrl(null);
+          if (!isSubmitting) { // Prevent closing while submitting
+            setShowEditDialog(false);
+            setProfileImage(null);
+            setPreviewImageUrl(null);
+          }
         }}
         formData={editForm}
         setFormData={setEditForm}
         onSubmit={handleEditSubmit}
         currentImage={user.image}
         previewImage={previewImageUrl}
+        isSubmitting={isSubmitting} // Pass the submitting state
         onImageChange={(file) => {
           setProfileImage(file);
           setPreviewImageUrl(URL.createObjectURL(file));

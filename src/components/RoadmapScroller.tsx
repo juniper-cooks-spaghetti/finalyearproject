@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import type { Topic, UserRoadmapTopic, TopicStatus, Content } from "@/types/roadmap";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ export default function RoadmapScroller({
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [canScroll, setCanScroll] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0); 
+  const [showTopicContent, setShowTopicContent] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -153,6 +154,7 @@ export default function RoadmapScroller({
 
   const handleTopicClick = (topic: Topic) => {
     setSelectedTopic(topic);
+    setShowTopicContent(true);
   };
 
   const refreshData = () => {
@@ -161,6 +163,16 @@ export default function RoadmapScroller({
     // Notify parent of data change
     if (onDataChange) onDataChange();
   };
+
+  const handleDataChange = useCallback(() => {
+    // Increment refresh key to force children to reload
+    setRefreshKey(prev => prev + 1);
+    
+    // Propagate changes upward
+    if (onDataChange) {
+      onDataChange();
+    }
+  }, [onDataChange]);
 
   return (
     <div className="relative group">
@@ -291,19 +303,18 @@ export default function RoadmapScroller({
 
       {selectedTopic && (
         <TopicContent
-          isOpen={!!selectedTopic}
-          onClose={() => setSelectedTopic(null)}
+          isOpen={showTopicContent}
+          onClose={() => setShowTopicContent(false)}
           topic={selectedTopic}
           userRoadmapId={userRoadmapId}
           roadmapId={roadmapId}
-          readOnly={readOnly}
           previousTopicId={null} // Add this explicitly
           onDelete={readOnly ? undefined : (topicId) => {
             setLocalTopics(prev => prev.filter(t => t.topic.id !== topicId));
             setSelectedTopic(null);
             refreshData(); // Refresh after delete
           }}
-          onDataChange={refreshData} // Pass the refresh function
+          onDataChange={handleDataChange} // Pass the handler here
         />
       )}
     </div>

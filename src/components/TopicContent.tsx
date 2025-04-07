@@ -79,7 +79,16 @@ function ContentItem({
       
       const result = await toggleContentLike(item.id, topicId);
       
-      if (!result.success) {
+      if (result.success) {
+        // Dispatch a custom event for content interaction
+        window.dispatchEvent(new CustomEvent('topic-content-interaction', { 
+          detail: { 
+            topicId, 
+            contentId: item.id,
+            action: newLikedState ? 'like' : 'unlike'
+          }
+        }));
+      } else {
         setHasLiked(!newLikedState);
         setLikesCount(prev => newLikedState ? prev - 1 : prev + 1);
       }
@@ -268,6 +277,16 @@ export function TopicContent({
         if (onDataChange) {
           onDataChange();
         }
+        
+        // Dispatch custom event for topic status change
+        window.dispatchEvent(new CustomEvent('topic-status-changed', { 
+          detail: { 
+            topicId: topic.id, 
+            status: newStatus,
+            userRoadmapId
+          }
+        }));
+        
         refreshRecommendations();
       } else {
         throw new Error(result.error);
@@ -437,38 +456,65 @@ export function TopicContent({
     );
   };
 
-  return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden">
-        <DialogHeader>
-        { renderDialogTitle() }
-        </DialogHeader>
-        <ScrollArea className="h-full max-h-[calc(80vh-120px)] pr-4">
-          <div className="space-y-8">
-            <div className="space-y-4">
-              <p className="text-muted-foreground">{topic.description}</p>
-              <div className="flex text-sm">
-                  <span>Resources:&nbsp;</span>
-                  <span>{content.length}</span>
-                </div>
-              {renderContent()}
-            </div>
+  // Add this function to TopicContent to handle rating completions 
+  const handleTopicRated = (rating: number, timeSpent: number) => {
+    // Update local state
+    setCompletion(prev => ({
+      ...prev,
+      difficultyRating: rating,
+      timeSpent: timeSpent
+    }));
+    
+    // Notify parent
+    if (onDataChange) {
+      onDataChange();
+    }
+    
+    // Broadcast the change
+    window.dispatchEvent(new CustomEvent('topic-rated', { 
+      detail: { 
+        topicId: topic.id, 
+        rating,
+        timeSpent,
+        userRoadmapId
+      }
+    }));
+  };
 
-            {!readOnly && (
-              <div className="pt-4 border-t">
-                <TopicRecommendations 
-                  currentTopicId={topic.id}
-                  roadmapId={roadmapId}
-                  userRoadmapId={userRoadmapId} // Add this prop
-                  onSelectRecommendation={() => {}}
-                  onRecommendationAdded={handleRecommendationAdded}
-                  key={recommendationsRefreshKey} // Add this for forcing re-render
-                />
+  return (
+    <>
+      <Dialog open={isOpen} onOpenChange={handleClose}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+          { renderDialogTitle() }
+          </DialogHeader>
+          <ScrollArea className="h-full max-h-[calc(80vh-120px)] pr-4">
+            <div className="space-y-8">
+              <div className="space-y-4">
+                <p className="text-muted-foreground">{topic.description}</p>
+                <div className="flex text-sm">
+                    <span>Resources:&nbsp;</span>
+                    <span>{content.length}</span>
+                  </div>
+                {renderContent()}
               </div>
-            )}
-          </div>
-        </ScrollArea>
-      </DialogContent>
+
+              {!readOnly && (
+                <div className="pt-4 border-t">
+                  <TopicRecommendations 
+                    currentTopicId={topic.id}
+                    roadmapId={roadmapId}
+                    userRoadmapId={userRoadmapId} // Add this prop
+                    onSelectRecommendation={() => {}}
+                    onRecommendationAdded={handleRecommendationAdded}
+                    key={recommendationsRefreshKey} // Add this for forcing re-render
+                  />
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
       {!readOnly && (
         <RateTopicDialog
           isOpen={showRateDialog}
@@ -476,8 +522,9 @@ export function TopicContent({
           topicId={topic.id}
           initialRating={completion.difficultyRating || undefined}
           initialTimeSpent={completion.timeSpent || undefined}
+          onRated={handleTopicRated} // Add this prop
         />
       )}
-    </Dialog>
+    </>
   );
 }
