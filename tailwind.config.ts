@@ -56,47 +56,67 @@ const config: Config = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
-		keyframes: {
-			scroll: {
-			  '0%': { transform: 'translateX(0)' },
-			  '100%': { 
-				transform: 'translateX(calc(max(-100%, -300px) + 24px))',
-				visibility: 'hidden'
-			  }
-			},
-			blob: {
-			  "0%": {
-				transform: "translate(0px, 0px) scale(1)",
-			  },
-			  "33%": {
-				transform: "translate(30px, -50px) scale(1.1)",
-			  },
-			  "66%": {
-				transform: "translate(-20px, 20px) scale(0.9)",
-			  },
-			  "100%": {
-				transform: "translate(0px, 0px) scale(1)",
-			  },
-			}
-		},
-		animation: {
-			scroll: 'scroll 15s linear 1 forwards',
-			blob: "blob 7s infinite"
-		},
-		utilities: {
-			".animation-delay-2000": {
-			  "animation-delay": "2s",
-			},
-			".animation-delay-4000": {
-			  "animation-delay": "4s",
-			},
-			".animation-delay-1000": {
-			  "animation-delay": "1s",
-			},
-			".animation-delay-3000": {
-			  "animation-delay": "3s",
-			},
-		}
+  		keyframes: {
+  			scroll: {
+  				'0%': {
+  					transform: 'translateX(0)'
+  				},
+  				'100%': {
+  					transform: 'translateX(calc(max(-100%, -300px) + 24px))',
+  					visibility: 'hidden'
+  				}
+  			},
+  			blob: {
+  				'0%': {
+  					transform: 'translate(0px, 0px) scale(1)'
+  				},
+  				'33%': {
+  					transform: 'translate(30px, -50px) scale(1.1)'
+  				},
+  				'66%': {
+  					transform: 'translate(-20px, 20px) scale(0.9)'
+  				},
+  				'100%': {
+  					transform: 'translate(0px, 0px) scale(1)'
+  				}
+  			},
+  			'accordion-down': {
+  				from: {
+  					height: '0'
+  				},
+  				to: {
+  					height: 'var(--radix-accordion-content-height)'
+  				}
+  			},
+  			'accordion-up': {
+  				from: {
+  					height: 'var(--radix-accordion-content-height)'
+  				},
+  				to: {
+  					height: '0'
+  				}
+  			}
+  		},
+  		animation: {
+  			scroll: 'scroll 15s linear 1 forwards',
+  			blob: 'blob 7s infinite',
+  			'accordion-down': 'accordion-down 0.2s ease-out',
+  			'accordion-up': 'accordion-up 0.2s ease-out'
+  		},
+  		utilities: {
+  			'.animation-delay-2000': {
+  				'animation-delay': '2s'
+  			},
+  			'.animation-delay-4000': {
+  				'animation-delay': '4s'
+  			},
+  			'.animation-delay-1000': {
+  				'animation-delay': '1s'
+  			},
+  			'.animation-delay-3000': {
+  				'animation-delay': '3s'
+  			}
+  		}
   	}
   },
   plugins: [require("tailwindcss-animate")],

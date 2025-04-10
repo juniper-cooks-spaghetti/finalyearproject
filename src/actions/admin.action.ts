@@ -9,11 +9,18 @@ const API_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 export async function deleteUser(clerkId: string) {
   try {
-    // Initialize the clerk client properly - notice the function call
+    // Initialize the clerk client properly
     const clerk = await clerkClient();
     
-    // Delete from Clerk using the initialized client
-    await clerk.users.deleteUser(clerkId);
+    try {
+      // Try to delete from Clerk, but don't let it stop the whole process if it fails
+      await clerk.users.deleteUser(clerkId);
+    } catch (clerkError) {
+      // Log the clerk error but continue with database deletion
+      console.error('Error deleting user from Clerk (continuing with DB deletion):', clerkError);
+      // If it's not a "user not found" error, you might want to re-throw it
+      // but for now we'll continue with the database deletion
+    }
     
     // Delete from database (will cascade delete related data)
     await prisma.user.delete({

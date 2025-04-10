@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import searchCache from '@/lib/searchCache';
+import dbSearchService from '@/lib/dbSearchService';
+import { prisma } from '@/lib/prisma';
 import { v4 as uuidv4 } from 'uuid';
 
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
@@ -10,23 +11,72 @@ const API_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 interface SearchRequest {
   query: string;
   domains?: string[];
+  topicOnly?: boolean; // Parameter to indicate topic-based search
+  topicId?: string; // Optional topic ID for tracking
 }
 
 // Modern Next.js App Router config format
 export const dynamic = 'force-dynamic';
+export const maxDuration = 10; // Keep within Vercel Hobby tier limits
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as SearchRequest;
-    const { query, domains } = body;
+    let { query, domains, topicOnly = false, topicId } = body;
     
-    console.log('Search API received request:', { query, domains });
+    console.log('Search API received request:', { query, domains, topicOnly, topicId });
     
     if (!query || query.trim() === '') {
       return NextResponse.json({
         success: false,
         error: 'Query is required'
       }, { status: 400 });
+    }
+    
+    if (!domains || domains.length === 0) {
+      console.warn('No domains provided in search request, defaulting to general search');
+      domains = []; // Default to empty array for general search
+    }
+    
+    // A variable to hold the actual search query we'll send to Apify
+    let searchQuery = query.trim();
+    let matchingTopic = null;
+    
+    // If topicOnly is true or we have a topicId, let's find the corresponding topic
+    if (topicOnly || topicId) {
+      // If we have a topicId, use that to find the topic
+      if (topicId) {
+        matchingTopic = await prisma.topic.findUnique({
+          where: { id: topicId },
+          select: { id: true, title: true }
+        });
+      } else {
+        // Otherwise use the query to find a matching topic
+        matchingTopic = await prisma.topic.findFirst({
+          where: {
+            title: {
+              contains: query,
+              mode: 'insensitive'
+            }
+          },
+          select: { id: true, title: true }
+        });
+      }
+      
+      if (!matchingTopic) {
+        return NextResponse.json({
+          success: false,
+          error: 'No matching topic found',
+          message: 'Please enter a valid topic name'
+        }, { status: 404 });
+      }
+      
+      // Use the exact topic title as the search query
+      searchQuery = matchingTopic.title;
+      console.log(`Using topic title "${searchQuery}" as search query`);
+      
+      // No longer need to track topic searches since we removed that functionality
+      // await dbSearchService.trackTopicSearch(matchingTopic.id); // Removed this line
     }
     
     if (!APIFY_API_TOKEN || !APIFY_TASK_ID) {
@@ -38,68 +88,71 @@ export async function POST(request: NextRequest) {
     }
     
     // Check if we already have cached results for this query
-    const cachedSearch = searchCache.findSearchByQuery(query);
+    const cachedSearch = await dbSearchService.findSearchByQuery(searchQuery);
     
     if (cachedSearch && cachedSearch.status === 'completed' && cachedSearch.results) {
-      console.log(`Found cached results for query "${query}"`);
+      console.log(`Found cached results for query "${searchQuery}"`);
+      
+      // If domains were specified, filter the cached results to only include those domains
+      let filteredResults = cachedSearch.results;
+      if (domains && domains.length > 0) {
+        console.log(`Filtering cached results for domains:`, domains);
+        // Filter results to only include those from the specified domains
+        filteredResults = cachedSearch.results.filter(result => 
+          domains.some(domain => result.url.includes(domain))
+        );
+        
+        console.log(`After filtering: ${filteredResults.length} of ${cachedSearch.results.length} results match domains`);
+      }
+      
       return NextResponse.json({
         success: true,
         cached: true,
         searchId: cachedSearch.searchId,
         runId: cachedSearch.runId,
-        results: cachedSearch.results,
+        results: filteredResults,
         status: 'completed'
       });
     }
 
-    // Queue the search and get a runId when it can proceed
-    // This will wait if there are too many active searches
-    // or return null if we found a cached result
-    let runId;
-    try {
-      console.log(`Queueing search for "${query}"`);
-      runId = await searchCache.queueSearch(query);
-      
-      // If null is returned, it means the search was found in cache
-      if (runId === null) {
-        // Try to find it in the cache again (might have been added since our last check)
-        const freshCacheCheck = searchCache.findSearchByQuery(query);
-        if (freshCacheCheck && freshCacheCheck.status === 'completed' && freshCacheCheck.results) {
-          console.log(`Search for "${query}" completed while queueing`);
-          return NextResponse.json({
-            success: true,
-            cached: true,
-            searchId: freshCacheCheck.searchId,
-            runId: freshCacheCheck.runId,
-            results: freshCacheCheck.results,
-            status: 'completed'
-          });
-        }
-        
-        // This shouldn't happen, but if it does, we'll create a new search below
-        console.log(`Unexpected null runId for "${query}" without cached results`);
-      } else {
-        console.log(`Search for "${query}" is ready to proceed with runId ${runId}`);
-      }
-    } catch (queueError) {
-      console.error(`Error queueing search for "${query}":`, queueError);
-      return NextResponse.json({
-        success: false,
-        error: 'Failed to queue search',
-        message: queueError instanceof Error ? queueError.message : 'Unknown error'
-      }, { status: 500 });
-    }
+    // Format the search query based on selected domains
+    let formattedQuery = searchQuery;
     
-    // Format the domain URLs for the Apify task
-    let formattedQuery = query.trim();
-
     // Add domains to the query if provided
     if (domains && domains.length > 0) {
-      formattedQuery = `${formattedQuery} ${domains.join(' ')}`;
+      // Format specific site restrictions for better filtering in Google search
+      const siteParts = domains.map(domain => {
+        // Extract the domain part (remove http/https, www, and paths)
+        let cleanDomain = domain;
+        try {
+          if (domain.startsWith('http')) {
+            const url = new URL(domain);
+            cleanDomain = url.hostname;
+          } else if (domain.includes('/')) {
+            cleanDomain = domain.split('/')[0];
+          }
+          
+          // Remove www. prefix if present
+          cleanDomain = cleanDomain.replace(/^www\./, '');
+        } catch (e) {
+          console.warn('Error parsing domain:', domain, e);
+        }
+        
+        return `site:${cleanDomain}`;
+      });
+      
+      // Join with OR for Google search syntax
+      const siteRestrictions = siteParts.join(' OR ');
+      
+      // Simplify to just the topic name and site restrictions
+      // This maintains the pure topic name for caching while still filtering by site
+      formattedQuery = `${searchQuery} ${siteRestrictions}`;
     }
     
-    // Create a unique search ID for this request if we don't have one yet
-    const searchId = runId || uuidv4();
+    console.log(`Formatted search query: "${formattedQuery}"`);
+    
+    // Create a unique search ID for this request
+    const searchId = uuidv4();
     
     // Build the webhook URL - this is where Apify will send the results
     const webhookUrl = `${API_URL}/api/webhooks/apify`;
@@ -117,10 +170,23 @@ export async function POST(request: NextRequest) {
       "saveHtml": false, // No need to save HTML content
       "saveHtmlToKeyValueStore": false,
       "includeUnfilteredResults": true, // Get more results
+      // Store the original search query for extraction in the webhook
+      "customData": {
+        "originalQuery": searchQuery,
+        "domains": domains
+      },
       // Configure the webhook
       "webhooks": [{
         "eventTypes": ["ACTOR.RUN.SUCCEEDED"],
-        "requestUrl": webhookUrl
+        "requestUrl": webhookUrl,
+        "payloadTemplate": JSON.stringify({
+          "runId": "{{resource.id}}",
+          "datasetId": "{{resource.defaultDatasetId}}",
+          "searchQuery": searchQuery, // Original search query from topic
+          "originalQuery": searchQuery, // Duplicate for redundancy
+          "domains": domains, // Include the domains to filter by
+          "actorRunId": "{{eventData.actorRunId}}"
+        })
       }]
     };
 
@@ -139,11 +205,6 @@ export async function POST(request: NextRequest) {
       const errorText = await response.text();
       console.error(`Apify API error (${response.status}):`, errorText);
       
-      // Release the lock if we had one so another search can proceed
-      if (runId) {
-        searchCache.releaseSearchLock(query);
-      }
-      
       return NextResponse.json({
         success: false,
         error: 'Failed to start search task',
@@ -158,11 +219,6 @@ export async function POST(request: NextRequest) {
     if (!data.data || !data.data.id) {
       console.error('Invalid response from Apify:', data);
       
-      // Release the lock if we had one
-      if (runId) {
-        searchCache.releaseSearchLock(query);
-      }
-      
       return NextResponse.json({
         success: false, 
         error: 'Invalid Apify response format',
@@ -174,14 +230,17 @@ export async function POST(request: NextRequest) {
     const apifyRunId = data.data.id;
     console.log(`Apify search started with runId: ${apifyRunId}`);
     
-    // Register this search in our cache with pending status
-    searchCache.addSearch(apifyRunId, searchId, query);
-    console.log(`Registered search in cache: runId=${apifyRunId}, searchId=${searchId}, query="${query}"`);
+    // Register this search in our database cache with pending status BEFORE the webhook is received
+    // This is crucial - we need to associate the search query with the runId in our database
+    // so that when the webhook comes in with just the runId, we can look up the query
+    await dbSearchService.addSearch(apifyRunId, searchQuery);
+    console.log(`Registered search in database: runId=${apifyRunId}, query="${searchQuery}"`);
     
-    // If we had our own temporary runId for queueing, we no longer need the lock with that ID
-    // The new apifyRunId will be used for tracking
-    if (runId && runId !== apifyRunId) {
-      searchCache.releaseSearchLock(query);
+    // No need to store domains as metadata since the schema doesn't support it
+    // Instead, log the domains for debugging purposes
+    if (domains && domains.length > 0) {
+      console.log(`Search ${apifyRunId} includes domains:`, domains);
+      // We could consider updating the schema to include domains in the future if needed
     }
     
     // Return success response with runId
@@ -190,9 +249,7 @@ export async function POST(request: NextRequest) {
       message: 'Search initiated successfully',
       searchId,
       runId: apifyRunId,
-      status: 'pending',
-      activeSearches: searchCache.getActiveSearchCount(),
-      queueLength: searchCache.getQueueLength()
+      status: 'pending'
     });
     
   } catch (error) {

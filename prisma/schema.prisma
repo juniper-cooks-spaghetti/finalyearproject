@@ -102,7 +102,7 @@ model UserTopicCompletion {
   topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   topicId String
 
-  user    User    @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String
   
   @@unique([topicId, userId])
@@ -234,7 +234,7 @@ model ContentLike {
   createdAt DateTime @default(now())
 
   // Relations
-  user    User    @relation(fields: [userId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
   topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
@@ -242,4 +242,35 @@ model ContentLike {
   @@index([userId])
   @@index([contentId])
   @@index([topicId])
+}
+
+// New models for search caching
+model SearchCache {
+  id           String       @id @default(cuid())
+  query        String       // The search query
+  normalizedQuery String    // Lowercase, trimmed query for better matching
+  runId        String       @unique // Apify run ID or internal ID
+  status       String       // pending, completed, error, timeout
+  timestamp    DateTime     @default(now())
+  expiresAt    DateTime     // When this cache entry should expire
+  errorMessage String?      // Error message if status is error
+  results      SearchResult[] // One-to-many relationship with results
+  
+  @@index([normalizedQuery])
+  @@index([expiresAt]) // For cleanup of expired entries
+}
+
+model SearchResult {
+  id               String     @id @default(cuid())
+  title            String     // Result title
+  url              String     // Result URL
+  description      String     // Result description
+  type             String     // Content type
+  source           String     // Source domain
+  
+  // Relationship to search cache
+  searchCache      SearchCache @relation(fields: [searchCacheId], references: [id], onDelete: Cascade)
+  searchCacheId    String
+  
+  @@index([searchCacheId])
 }

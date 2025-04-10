@@ -3,10 +3,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search, Trash2 } from "lucide-react";
+import { Loader2, Search, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { useDebounce } from '@/hooks/useDebounce';
+import { getTopicSuggestions } from '@/actions/search.action';
+import { 
+  Accordion, 
+  AccordionContent, 
+  AccordionItem, 
+  AccordionTrigger 
+} from "@/components/ui/accordion";
 
 // Search domain options - these will be used to tailor search results
 const searchDomains = [
@@ -31,23 +39,27 @@ const searchDomains = [
   ]}
 ];
 
+interface TopicSuggestion {
+  id: string;
+  title: string;
+  description: string;
+}
+
 interface SearchResult {
   title: string;
   url: string;
   description: string;
   type: string;
   source: string;
-  relevanceScore: number;
 }
 
 interface SearchFormProps {
-  onResultsFound: (results: SearchResult[]) => void;
+  onResultsFound: (results: SearchResult[], runId?: string) => void;
   isContentTab?: boolean; // To adjust UI based on which tab it's on
 }
 
 export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormProps) {
   const [query, setQuery] = useState('');
-  // Changed from array to single string to only allow one platform at a time
   const [selectedDomain, setSelectedDomain] = useState<string>('coursera');
   const [isSearching, setIsSearching] = useState(false);
   const [isClearingCache, setIsClearingCache] = useState(false);
@@ -58,8 +70,50 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
   const [queueLength, setQueueLength] = useState<number>(0);
   const { toast } = useToast();
   
+  // Topic suggestions state
+  const [topicSuggestions, setTopicSuggestions] = useState<TopicSuggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [accordionOpen, setAccordionOpen] = useState<string | undefined>(undefined);
+  const [selectedTopic, setSelectedTopic] = useState<TopicSuggestion | null>(null);
+  
+  // Debounce search query for suggestions
+  const debouncedQuery = useDebounce(query, 300);
+  
   // Cancel search timeout reference
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Fetch topic suggestions when debounced query changes
+  useEffect(() => {
+    async function fetchTopicSuggestions() {
+      if (debouncedQuery.length < 2) {
+        setTopicSuggestions([]);
+        setAccordionOpen(undefined);
+        return;
+      }
+      
+      setIsLoadingSuggestions(true);
+      try {
+        const result = await getTopicSuggestions(debouncedQuery);
+        if (result.success && result.topics && result.topics.length > 0) {
+          setTopicSuggestions(result.topics);
+          setAccordionOpen('suggestions'); // Open accordion when suggestions are available
+        } else {
+          setTopicSuggestions([]);
+          if (debouncedQuery.length > 2) {
+            // Only close accordion if user has typed enough characters
+            setAccordionOpen(undefined);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching topic suggestions:', error);
+        setTopicSuggestions([]);
+      } finally {
+        setIsLoadingSuggestions(false);
+      }
+    }
+    
+    fetchTopicSuggestions();
+  }, [debouncedQuery]);
   
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -70,13 +124,19 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
     };
   }, []);
 
-  // Handle domain selection - updated to only select one domain
+  // Handle domain selection
   const handleDomainChange = (value: string) => {
-    // Simply set the selected domain to the new value
     setSelectedDomain(value);
   };
 
-  // Clear search cache handler - simplified to only clear all
+  // Handle selecting a topic suggestion
+  const handleSelectTopic = (topic: TopicSuggestion) => {
+    setQuery(topic.title);
+    setSelectedTopic(topic);
+    setAccordionOpen(undefined); // Close accordion after selection
+  };
+
+  // Clear search cache handler
   const handleClearCache = async () => {
     if (isClearingCache) return;
     
@@ -96,7 +156,7 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
         toast({
           title: 'Cache cleared',
           description: data.message,
-          variant: 'success'
+          variant: 'default'
         });
       } else {
         toast({
@@ -119,15 +179,15 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
 
   // Check results with retries
   const checkResults = async (runId: string, attempt: number = 1) => {
+    // Define MAX_ATTEMPTS at the top of the function so it's accessible throughout
+    const MAX_ATTEMPTS = 30;
+    
     if (!runId) {
       console.error('No runId provided to checkResults');
       return;
     }
     
     try {
-      // Maximum attempts to avoid infinite polling
-      const MAX_ATTEMPTS = 20;
-      
       if (attempt > MAX_ATTEMPTS) {
         setIsSearching(false);
         setSearchStatus(null);
@@ -142,15 +202,52 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
       console.log(`Checking results for runId: ${runId}, attempt: ${attempt}`);
       
       // Call the results API to check the status
-      const response = await fetch(`/api/admin/scraper/results?runId=${runId}`);
+      const response = await fetch(`/api/admin/scraper/results?runId=${runId}`, {
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      if (!response.ok) {
+        console.error(`Results API error: ${response.status} ${response.statusText}`);
+        
+        if (response.status === 404 && attempt < MAX_ATTEMPTS) {
+          console.log(`Search ${runId} not found yet, retrying in 3000ms`);
+          timeoutRef.current = setTimeout(() => {
+            checkResults(runId, attempt + 1);
+          }, 3000);
+        } else {
+          const errorText = await response.text();
+          console.error(`Failed to check results: ${errorText}`);
+          
+          if (attempt < MAX_ATTEMPTS) {
+            console.log(`Will retry in ${2000}ms`);
+            timeoutRef.current = setTimeout(() => {
+              checkResults(runId, attempt + 1);
+            }, 2000);
+          } else {
+            setIsSearching(false);
+            setSearchStatus(null);
+            setQueuePosition(null);
+            toast({
+              title: 'Error',
+              description: 'Failed to retrieve search results after multiple attempts',
+              variant: 'destructive'
+            });
+          }
+        }
+        return;
+      }
+      
+      // Parse the response data
       const data = await response.json();
       
       console.log('Results check response:', data);
       
       if (!data.success) {
-        // If the request failed, try again after a delay
         if (attempt < MAX_ATTEMPTS) {
-          console.log(`Will retry in ${2000}ms`);
+          console.log(`Will retry in ${2000}ms due to unsuccessful response`);
           timeoutRef.current = setTimeout(() => {
             checkResults(runId, attempt + 1);
           }, 2000);
@@ -180,20 +277,19 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
       
       switch (status) {
         case 'completed':
-          // Search completed successfully, update the UI
           setIsSearching(false);
           setSearchStatus(null);
           setQueuePosition(null);
           
-          if (data.results && Array.isArray(data.results)) {
-            // Call the callback provided by the parent component with the results
-            onResultsFound(data.results);
+          if (data.results && Array.isArray(data.results) && data.results.length > 0) {
+            onResultsFound(data.results, runId);
             toast({
               title: 'Search completed',
               description: `Found ${data.results.length} results`,
-              variant: 'success'
+              variant: 'default'
             });
           } else {
+            onResultsFound([], runId);
             toast({
               title: 'No results found',
               description: 'The search completed but no results were found.',
@@ -203,15 +299,18 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
           break;
           
         case 'queued':
-          // Search is queued, poll again after a delay
-          const retryAfterQueued = 5000; // 5 seconds for queued status
-          console.log(`Search is queued at position ${data.queuePosition}, checking again in ${retryAfterQueued}ms`);
+          const retryAfterQueued = 5000;
+          console.log(`Search is queued at position ${data.queuePosition || 'unknown'}, checking again in ${retryAfterQueued}ms`);
           
-          toast({
-            title: 'Search queued',
-            description: `Your search is in queue position ${data.queuePosition}`,
-            variant: 'default'
-          });
+          if (!data.queuePosition || attempt % 3 === 0) {
+            toast({
+              title: 'Search queued',
+              description: data.queuePosition 
+                ? `Your search is in queue position ${data.queuePosition}` 
+                : 'Your search is queued',
+              variant: 'default',
+            });
+          }
           
           timeoutRef.current = setTimeout(() => {
             checkResults(runId, attempt + 1);
@@ -219,16 +318,23 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
           break;
           
         case 'pending':
-          // Search is still in progress, poll again after a delay
-          const retryAfter = data.retryAfter || 2000;
+          const retryAfter = data.retryAfter || 3000;
           console.log(`Search still in progress, checking again in ${retryAfter}ms`);
+          
+          if (attempt % 5 === 0) {
+            toast({
+              title: 'Search in progress',
+              description: 'Please wait while we process your search',
+              variant: 'default',
+            });
+          }
+          
           timeoutRef.current = setTimeout(() => {
             checkResults(runId, attempt + 1);
           }, retryAfter);
           break;
           
         case 'error':
-          // Search encountered an error
           setIsSearching(false);
           setSearchStatus(null);
           setQueuePosition(null);
@@ -239,13 +345,23 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
           });
           break;
           
+        case 'timeout':
+          setIsSearching(false);
+          setSearchStatus(null);
+          setQueuePosition(null);
+          toast({
+            title: 'Search timed out',
+            description: data.message || 'The search took too long and timed out',
+            variant: 'destructive'
+          });
+          break;
+          
         default:
-          // Unknown status
           console.warn(`Unknown search status: ${status}`);
           if (attempt < MAX_ATTEMPTS) {
             timeoutRef.current = setTimeout(() => {
               checkResults(runId, attempt + 1);
-            }, 2000);
+            }, 3000);
           } else {
             setIsSearching(false);
             setSearchStatus(null);
@@ -256,11 +372,10 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
     } catch (error) {
       console.error('Error checking search results:', error);
       
-      // Try again after a delay, if we haven't reached the maximum attempts
-      if (attempt < 10) {
+      if (attempt < MAX_ATTEMPTS / 2) {
         timeoutRef.current = setTimeout(() => {
           checkResults(runId, attempt + 1);
-        }, 2000);
+        }, 3000);
       } else {
         setIsSearching(false);
         setSearchStatus(null);
@@ -296,6 +411,31 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
       return;
     }
     
+    // Validate that query matches a topic title exactly
+    if (!selectedTopic) {
+      // If user hasn't selected a topic from suggestions, check if current query text matches a topic
+      let validTopic = false;
+      
+      // If we have suggestions loaded and one matches exactly, use it
+      if (topicSuggestions.length > 0) {
+        const exactMatch = topicSuggestions.find(t => t.title.toLowerCase() === query.trim().toLowerCase());
+        if (exactMatch) {
+          setSelectedTopic(exactMatch);
+          validTopic = true;
+        }
+      }
+      
+      // If no matching topic found, show error
+      if (!validTopic) {
+        toast({
+          title: 'No Existing Topic Found',
+          description: 'Please select a valid topic from the suggestions',
+          variant: 'destructive'
+        });
+        return;
+      }
+    }
+    
     setIsSearching(true);
     setSearchStatus('starting');
     
@@ -307,7 +447,7 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
     }
     
     try {
-      console.log('Starting search with query:', query, 'domain:', selectedDomain);
+      console.log('Starting search with topic:', selectedTopic, 'domain:', selectedDomain);
       
       // Call the search API to initiate the search
       const response = await fetch('/api/admin/scraper/search', {
@@ -317,7 +457,9 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
         },
         body: JSON.stringify({
           query: query.trim(),
-          domains: domainUrls
+          domains: domainUrls,
+          topicOnly: true,
+          topicId: selectedTopic?.id
         })
       });
       
@@ -355,11 +497,11 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
       if (data.status === 'completed' && data.results) {
         setIsSearching(false);
         setSearchStatus(null);
-        onResultsFound(data.results);
+        onResultsFound(data.results, data.runId); // Pass runId along with results
         toast({
           title: 'Search completed',
           description: `Found ${data.results.length} results (cached)`,
-          variant: 'success'
+          variant: 'default'
         });
         return;
       }
@@ -454,35 +596,71 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
       </div>
       
       <form onSubmit={handleSearch} className="space-y-4">
-        {/* Search input */}
-        <div className="flex gap-2">
-          <div className="relative flex-1">
+        {/* Search input with topic autocomplete */}
+        <div className="space-y-2">
+          <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search for learning resources..."
+              placeholder="Search by topic name..."
               className="pl-8"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSelectedTopic(null); // Clear selected topic when input changes
+              }}
               disabled={isSearching}
             />
-          </div>
-          <Button type="submit" disabled={isSearching}>
-            {isSearching ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {searchStatus === 'pending' ? 'Searching...' : 'Starting...'}
-              </>
-            ) : (
-              "Search"
+            {isLoadingSuggestions && (
+              <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
             )}
-          </Button>
+          </div>
+
+          {/* Topic suggestions accordion */}
+          {topicSuggestions.length > 0 && (
+            <Accordion
+              type="single"
+              collapsible
+              className="border rounded-md"
+              value={accordionOpen}
+              onValueChange={setAccordionOpen}
+            >
+              <AccordionItem value="suggestions" className="border-0">
+                <AccordionTrigger className="px-4 py-2 text-sm hover:no-underline">
+                  <span className="flex items-center">
+                    <span>Topic Suggestions</span>
+                    <Badge className="ml-2" variant="secondary">
+                      {topicSuggestions.length}
+                    </Badge>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="max-h-60 overflow-y-auto">
+                    {topicSuggestions.map((topic) => (
+                      <div
+                        key={topic.id}
+                        className={`p-2 text-sm hover:bg-accent hover:text-accent-foreground cursor-pointer ${
+                          selectedTopic?.id === topic.id ? 'bg-accent text-accent-foreground' : ''
+                        }`}
+                        onClick={() => handleSelectTopic(topic)}
+                      >
+                        <div className="font-medium">{topic.title}</div>
+                        <div className="text-xs text-muted-foreground line-clamp-2">
+                          {topic.description}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
         </div>
 
         {/* Status message and progress indicator */}
         {renderStatusMessage()}
 
-        {/* Domain selection - updated to show which platform is currently selected */}
+        {/* Domain selection */}
         <div>
           <p className="text-sm text-muted-foreground mb-2">Select a platform to search:</p>
           <div className="flex flex-wrap gap-2">
@@ -498,6 +676,26 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
             ))}
           </div>
         </div>
+
+        {/* Display currently selected topic if any */}
+        {selectedTopic && (
+          <div className="px-3 py-2 bg-muted rounded-md">
+            <div className="text-xs text-muted-foreground">Selected Topic:</div>
+            <div className="font-medium">{selectedTopic.title}</div>
+          </div>
+        )}
+
+        {/* Search button */}
+        <Button type="submit" disabled={isSearching || !selectedTopic}>
+          {isSearching ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {searchStatus === 'pending' ? 'Searching...' : 'Starting...'}
+            </>
+          ) : (
+            "Search"
+          )}
+        </Button>
       </form>
     </div>
   );

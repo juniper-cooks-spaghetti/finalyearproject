@@ -4,10 +4,18 @@ import { useState, useEffect } from 'react';
 import { ContentTable } from "@/app/admin/components/ContentTable";
 import { ContentSuggestionsTable } from "@/app/admin/components/ContentSuggestionsTable";
 import { SearchForm } from "@/app/admin/components/SearchForm";
+import { SearchResultsTable } from "@/app/admin/components/SearchResultsTable";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Globe, ExternalLink } from "lucide-react";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
 
 interface ContentTabsProps {
   content: any[];
@@ -22,7 +30,7 @@ interface SearchResult {
   description: string;
   type: string;
   source: string;
-  relevanceScore: number;
+
 }
 
 export function ContentTabs({ 
@@ -34,6 +42,8 @@ export function ContentTabs({
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
   const [mounted, setMounted] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [selectedTopicId, setSelectedTopicId] = useState<string>("");
+  const [searchRunId, setSearchRunId] = useState<string | null>(null);
 
   // Ensure component is mounted before rendering tabs
   // This fixes hydration issues that might prevent clicking
@@ -53,10 +63,18 @@ export function ContentTabs({
   }
 
   // Handle search results
-  const handleSearchResults = (results: SearchResult[]) => {
+  const handleSearchResults = (results: SearchResult[], runId?: string) => {
     setSearchResults(results);
+    if (runId) setSearchRunId(runId);
     // Automatically switch to the search tab to show results
     setActiveTab("search");
+  };
+
+  // Handle the deletion of a cache entry
+  const handleCacheDeleted = () => {
+    // Reset search results when cache is deleted
+    setSearchResults([]);
+    setSearchRunId(null);
   };
 
   return (
@@ -115,41 +133,54 @@ export function ContentTabs({
         
         {activeTab === "search" && (
           <div className="space-y-6">
-            <SearchForm onResultsFound={handleSearchResults} />
+            {/* Topic selector */}
+            <div className="border rounded-lg p-4 bg-card">
+              <h3 className="text-lg font-medium mb-2">Select Target Topic</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Choose a topic to add search results to:
+              </p>
+              
+              <Select
+                value={selectedTopicId}
+                onValueChange={setSelectedTopicId}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a topic" />
+                </SelectTrigger>
+                <SelectContent>
+                  {topics.map((topic) => (
+                    <SelectItem key={topic.id} value={topic.id}>
+                      {topic.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {selectedTopicId && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Content will be added to this topic when you click "Add" or "Add All to Topic"
+                </p>
+              )}
+            </div>
+            
+            <SearchForm 
+              onResultsFound={(results, runId) => handleSearchResults(results, runId)} 
+              isContentTab={true}
+            />
             
             {searchResults.length > 0 ? (
               <div className="space-y-4">
                 <h2 className="text-xl font-semibold">Search Results</h2>
                 <p className="text-sm text-muted-foreground">
-                  Found {searchResults.length} results. Click on a result to view more details.
+                  Found {searchResults.length} results. Click "Add" to add content to the selected topic.
                 </p>
                 
-                <div className="grid gap-4 md:grid-cols-2">
-                  {searchResults.map((result, index) => (
-                    <Card key={index} className="p-4 hover:shadow-md transition-shadow">
-                      <div className="flex flex-col space-y-2">
-                        <div className="flex justify-between items-start">
-                          <h3 className="font-medium line-clamp-2 flex-1">{result.title}</h3>
-                          <Badge className="ml-2" variant="outline">{result.type}</Badge>
-                        </div>
-                        
-                        <p className="text-sm text-muted-foreground line-clamp-2">{result.description}</p>
-                        
-                        <div className="flex justify-between items-center pt-2">
-                          <div className="flex items-center text-xs text-muted-foreground">
-                            <Globe className="h-3 w-3 mr-1" />
-                            <span>{result.source}</span>
-                          </div>
-                          <Button variant="ghost" size="sm" className="gap-1" asChild>
-                            <a href={result.url} target="_blank" rel="noopener noreferrer">
-                              Visit <ExternalLink className="h-3 w-3" />
-                            </a>
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
+                <SearchResultsTable 
+                  results={searchResults} 
+                  topicId={selectedTopicId}
+                  runId={searchRunId || undefined}
+                  onCacheDeleted={handleCacheDeleted}
+                />
               </div>
             ) : (
               <div className="flex justify-center items-center p-8 text-center text-muted-foreground">

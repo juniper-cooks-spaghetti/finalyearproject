@@ -398,8 +398,8 @@ class SearchCache {
   public findSearchByQuery(query: string): SearchEntry | undefined {
     const normalizedQuery = query.toLowerCase().trim();
     
-    // Check memory cache
-    for (const entry of this.cache.values()) {
+    // Check memory cache - fixed to use Array.from to avoid TypeScript iterator issues
+    for (const entry of Array.from(this.cache.values())) {
       if (entry.query.toLowerCase().trim() === normalizedQuery && 
           entry.status === 'completed' &&
           (!entry.expiresAt || entry.expiresAt > new Date())) {
@@ -418,7 +418,8 @@ class SearchCache {
     let latestEntry: SearchEntry | undefined;
     let latestTime = new Date(0);
     
-    for (const entry of this.cache.values()) {
+    // Fixed to use Array.from to avoid TypeScript iterator issues
+    for (const entry of Array.from(this.cache.values())) {
       if (entry.status === 'completed' && 
           entry.timestamp > latestTime &&
           (!entry.expiresAt || entry.expiresAt > new Date())) {
@@ -443,7 +444,8 @@ class SearchCache {
     let lruKey: string | null = null;
     let oldestAccess = new Date();
     
-    for (const [key, entry] of this.cache.entries()) {
+    // Fixed to use Array.from to avoid TypeScript iterator issues
+    for (const [key, entry] of Array.from(this.cache.entries())) {
       const accessTime = entry.lastAccessed || entry.timestamp;
       if (accessTime < oldestAccess) {
         oldestAccess = accessTime;
@@ -458,7 +460,9 @@ class SearchCache {
   private enforceCacheSizeLimit(): void {
     // First remove any expired entries
     const now = new Date();
-    for (const [key, entry] of this.cache.entries()) {
+    
+    // Fixed to use Array.from to avoid TypeScript iterator issues
+    for (const [key, entry] of Array.from(this.cache.entries())) {
       if (entry.expiresAt && entry.expiresAt < now) {
         this.cache.delete(key);
         console.log(`Removed expired cache entry for query "${entry.query}" with runId ${key}`);
@@ -489,14 +493,16 @@ class SearchCache {
       console.log(`Cleared in-memory search cache with ${cacheSize} entries`);
       
       // Cancel all timeouts
-      for (const [runId, timeout] of this.timeoutRefs.entries()) {
+      // Fixed to use Array.from to avoid TypeScript iterator issues
+      for (const [runId, timeout] of Array.from(this.timeoutRefs.entries())) {
         clearTimeout(timeout);
         console.log(`Cancelled timeout for ${runId}`);
       }
       this.timeoutRefs.clear();
       
       // Cancel and clear all active searches
-      for (const [query, lock] of this.activeSearches.entries()) {
+      // Fixed to use Array.from to avoid TypeScript iterator issues
+      for (const [query, lock] of Array.from(this.activeSearches.entries())) {
         clearTimeout(lock.releaseTimeout);
       }
       this.activeSearches.clear();
@@ -515,6 +521,5 @@ class SearchCache {
   }
 }
 
-// Create and export a singleton instance
-const searchCache = new SearchCache();
-export default searchCache;
+// No longer exporting the singleton instance as it's redundant
+// Keeping the class and types for reference or reuse elsewhere

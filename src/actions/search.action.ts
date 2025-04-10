@@ -2,6 +2,121 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
+import { checkAdmin } from '@/adminCheck';
+
+/**
+ * Get topic search suggestions for autocomplete
+ * @param query The search term to match against topic titles
+ * @returns Array of matching topics
+ */
+export async function getTopicSuggestions(query: string) {
+  // Validate query
+  if (!query || query.trim().length === 0) {
+    return { success: false, error: 'Query is required' };
+  }
+
+  try {
+    // Search for topics that match the query
+    const topics = await prisma.topic.findMany({
+      where: {
+        title: {
+          contains: query,
+          mode: 'insensitive'
+        }
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true
+      },
+      orderBy: {
+        title: 'asc'
+      },
+      take: 10 // Limit to 10 results
+    });
+
+    return {
+      success: true,
+      topics
+    };
+  } catch (error) {
+    console.error('Error getting topic suggestions:', error);
+    return {
+      success: false,
+      error: 'Failed to get topic suggestions'
+    };
+  }
+}
+
+/**
+ * Get popular topic searches
+ * @param limit Maximum number of topics to return
+ * @returns Array of random topics (since we no longer track popularity)
+ */
+export async function getPopularTopicSearches(limit: number = 5) {
+  try {
+    // Since we removed the TopicSearchSuggestion model,
+    // simply return random topics instead
+    const topics = await prisma.topic.findMany({
+      select: {
+        id: true,
+        title: true,
+        description: true
+      },
+      orderBy: {
+        // Order by most recently created
+        createdAt: 'desc'
+      },
+      take: limit
+    });
+
+    return {
+      success: true,
+      topics
+    };
+  } catch (error) {
+    console.error('Error getting popular topics:', error);
+    return {
+      success: false,
+      error: 'Failed to get popular topics'
+    };
+  }
+}
+
+/**
+ * Admin function to clear expired search caches
+ * @returns Result of the operation
+ */
+export async function clearExpiredSearchCaches() {
+  // Check admin permissions
+  const isAuthorized = await checkAdmin();
+  if (!isAuthorized) {
+    return { success: false, error: 'Unauthorized. Admin access required.' };
+  }
+
+  try {
+    // Delete expired search entries and their results
+    const result = await prisma.searchCache.deleteMany({
+      where: {
+        expiresAt: {
+          lt: new Date()
+        }
+      }
+    });
+
+    return {
+      success: true,
+      deletedCount: result.count,
+      message: `Deleted ${result.count} expired search cache entries`
+    };
+  } catch (error) {
+    console.error('Error clearing expired search caches:', error);
+    return {
+      success: false,
+      error: 'Failed to clear expired search caches'
+    };
+  }
+}
 
 export async function searchTopics(
   query: string,
