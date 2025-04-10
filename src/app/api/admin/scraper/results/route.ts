@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import searchCache from '@/lib/searchCache';
 
-const RESULTS_DIR = path.join(process.cwd(), 'data', 'search-results');
+// Modern Next.js App Router config format
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,26 +10,26 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const runId = searchParams.get('runId');
     const query = searchParams.get('query');
-    const filename = searchParams.get('filename');
     
-    console.log('Results API called with params:', { runId, query, filename });
-    
-    // Ensure results directory exists
-    await fs.mkdir(RESULTS_DIR, { recursive: true }).catch(err => {
-      console.error('Error creating results directory:', err);
-    });
+    console.log('Results API called with params:', { runId, query });
+
+    // Calculate cache durations
+    const SHORT_CACHE = 60; // 1 minute in seconds
+    const MEDIUM_CACHE = 300; // 5 minutes in seconds
+    const LONG_CACHE = 1800; // 30 minutes in seconds
     
     // Case 1: If a specific runId is provided - prioritize this case
     if (runId) {
       console.log(`Looking up results for runId: ${runId}`);
       
-      // First check the cache for the current status
+      // Check the cache for the current status
       const searchEntry = searchCache.getSearchById(runId);
       
-      // If the search is in progress, return the current status
+      // If the search is in progress, return the current status with short cache time
       if (searchEntry && (searchEntry.status === 'pending' || searchEntry.status === 'error')) {
         console.log(`Search ${runId} is ${searchEntry.status}`);
-        return NextResponse.json({
+        
+        const response = NextResponse.json({
           success: true,
           runId,
           status: searchEntry.status,
@@ -39,73 +38,39 @@ export async function GET(request: NextRequest) {
           timestamp: searchEntry.timestamp.toISOString(),
           retryAfter: 3000 // Add a retry suggestion in 3 seconds
         });
+        
+        // Short cache for in-progress searches
+        response.headers.set('Cache-Control', `public, max-age=${SHORT_CACHE}, s-maxage=${SHORT_CACHE}`);
+        return response;
       }
       
-      // If completed or no search entry found, try to read the results file directly
-      try {
-        const filePath = path.join(RESULTS_DIR, `${runId}.json`);
-        const fileContent = await fs.readFile(filePath, 'utf8');
-        const resultData = JSON.parse(fileContent);
+      // If search is completed and we have results
+      if (searchEntry && searchEntry.status === 'completed' && searchEntry.results) {
+        console.log(`Successfully retrieved results for runId: ${runId} from cache`);
         
-        console.log(`Successfully retrieved results for runId: ${runId}`);
-        
-        // Return the full result data
-        return NextResponse.json({
+        const response = NextResponse.json({
           success: true,
-          runId: resultData.runId,
+          runId: searchEntry.runId,
           status: 'completed',
-          query: resultData.query,
-          results: resultData.results,
-          timestamp: resultData.timestamp
+          query: searchEntry.query,
+          results: searchEntry.results,
+          timestamp: searchEntry.timestamp.toISOString()
         });
-      } catch (error) {
-        console.error(`Error loading results for ${runId}:`, error);
-        // If file doesn't exist but we have a cache entry, return that
-        if (searchEntry) {
-          return NextResponse.json({
-            success: true,
-            runId,
-            status: searchEntry.status,
-            message: 'Results file not found, but search is tracked',
-            query: searchEntry.query,
-            timestamp: searchEntry.timestamp.toISOString(),
-            retryAfter: 2000 // Add a retry suggestion
-          });
-        }
         
-        return NextResponse.json({
-          success: false,
-          error: 'Results not found',
-          message: 'No data available for the provided runId'
-        }, { status: 404 });
+        // Long cache for completed searches
+        response.headers.set('Cache-Control', `public, max-age=${LONG_CACHE}, s-maxage=${LONG_CACHE}`);
+        return response;
       }
-    }
-    
-    // Case 2: If a specific filename is provided
-    if (filename) {
-      console.log(`Looking up file by name: ${filename}`);
       
-      try {
-        const filePath = path.join(RESULTS_DIR, filename);
-        const fileContent = await fs.readFile(filePath, 'utf8');
-        const resultData = JSON.parse(fileContent);
-        
-        return NextResponse.json({
-          success: true,
-          filename,
-          results: resultData
-        });
-      } catch (error) {
-        console.error(`Error loading file ${filename}:`, error);
-        return NextResponse.json({
-          success: false,
-          error: 'File not found',
-          filename
-        }, { status: 404 });
-      }
+      // If we don't have the entry in cache
+      return NextResponse.json({
+        success: false,
+        error: 'Results not found',
+        message: 'No data available for the provided runId'
+      }, { status: 404 });
     }
     
-    // Case 3: If a query is provided, find results for that query
+    // Case 2: If a query is provided, find results for that query
     if (query) {
       console.log(`Looking up results for query: ${query}`);
       const searchEntry = searchCache.findSearchByQuery(query);
@@ -113,7 +78,7 @@ export async function GET(request: NextRequest) {
       if (searchEntry) {
         // If the search is in progress, return the current status
         if (searchEntry.status !== 'completed') {
-          return NextResponse.json({
+          const response = NextResponse.json({
             success: true,
             runId: searchEntry.runId,
             query,
@@ -121,10 +86,14 @@ export async function GET(request: NextRequest) {
             message: searchEntry.status === 'error' ? searchEntry.error : 'Search in progress',
             timestamp: searchEntry.timestamp.toISOString()
           });
+          
+          // Short cache for in-progress searches
+          response.headers.set('Cache-Control', `public, max-age=${SHORT_CACHE}, s-maxage=${SHORT_CACHE}`);
+          return response;
         }
         
         // If completed, include the results
-        return NextResponse.json({
+        const response = NextResponse.json({
           success: true,
           runId: searchEntry.runId,
           query,
@@ -132,113 +101,50 @@ export async function GET(request: NextRequest) {
           results: searchEntry.results || [],
           timestamp: searchEntry.timestamp.toISOString()
         });
+        
+        // Medium cache for query-based results
+        response.headers.set('Cache-Control', `public, max-age=${MEDIUM_CACHE}, s-maxage=${MEDIUM_CACHE}`);
+        return response;
       }
       
-      // Try to find a query lookup file
-      try {
-        const queryFileName = `query_${query.toLowerCase().replace(/[^a-z0-9]/g, '_')}.json`;
-        const filePath = path.join(RESULTS_DIR, queryFileName);
-        const fileContent = await fs.readFile(filePath, 'utf8');
-        const resultData = JSON.parse(fileContent);
-        
-        return NextResponse.json({
-          success: true,
-          query,
-          status: resultData.status,
-          runId: resultData.runId,
-          results: resultData.results,
-          timestamp: resultData.timestamp
-        });
-      } catch (error) {
-        console.log(`No results found for query "${query}"`);
-        return NextResponse.json({
-          success: false,
-          error: 'No results found',
-          query
-        }, { status: 404 });
-      }
+      console.log(`No results found for query "${query}"`);
+      return NextResponse.json({
+        success: false,
+        error: 'No results found',
+        query
+      }, { status: 404 });
     }
     
-    // Case 4: No specific parameters, list all available searches
-    console.log('Listing all available searches');
+    // Case 3: No specific parameters, list all available searches from memory cache
+    console.log('Listing all available searches from memory cache');
     
-    // Get all files from the results directory
-    let files;
-    try {
-      files = await fs.readdir(RESULTS_DIR);
-    } catch (error) {
-      console.error('Error reading results directory:', error);
-      files = [];
-    }
+    // Get all entries from memory cache
+    const cacheState = searchCache.dumpCacheState();
+    const entries = (cacheState as any).entries || [];
     
-    // Process each file to extract metadata
-    const results = await Promise.all(
-      files.filter(file => file.endsWith('.json'))
-        .map(async (file) => {
-          try {
-            const filePath = path.join(RESULTS_DIR, file);
-            const stats = await fs.stat(filePath);
-            
-            try {
-              // Try to read the file content
-              const content = await fs.readFile(filePath, 'utf8');
-              const data = JSON.parse(content);
-              
-              // Determine the runId and query based on file format
-              let runId, query, status;
-              
-              if (data.runId) {
-                // This is our cache entry format
-                runId = data.runId;
-                query = data.query;
-                status = data.status;
-              } else if (data.metadata && data.metadata.runId) {
-                // This is our application format with metadata
-                runId = data.metadata.runId;
-                query = data.metadata.query || data.metadata.searchTerm;
-                status = 'completed';
-              } else {
-                // Fallback: use filename without extension as runId
-                runId = file.replace('.json', '');
-                query = 'unknown';
-                status = 'unknown';
-              }
-              
-              return {
-                filename: file,
-                runId,
-                query,
-                status,
-                timestamp: stats.mtime.toISOString()
-              };
-            } catch (parseError) {
-              // If we can't read or parse the file, return basic info
-              console.error(`Error parsing ${file}:`, parseError);
-              return {
-                filename: file,
-                timestamp: stats.mtime.toISOString(),
-                status: 'error',
-                error: 'Failed to parse file'
-              };
-            }
-          } catch (error) {
-            console.error(`Error processing file ${file}:`, error);
-            return null;
-          }
-        })
+    // Format the response
+    const results = entries.map(entry => ({
+      runId: entry.runId,
+      query: entry.query,
+      status: entry.status,
+      timestamp: entry.timestamp,
+      hasResults: entry.hasResults > 0
+    }));
+    
+    // Sort by timestamp (newest first)
+    results.sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
     
-    // Filter out nulls and sort by timestamp (newest first)
-    const validResults = results.filter(item => item !== null);
-    validResults.sort((a, b) => 
-      new Date(b!.timestamp).getTime() - new Date(a!.timestamp).getTime()
-    );
-    
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
-      count: validResults.length,
-      results: validResults
+      count: results.length,
+      results
     });
+    
+    // Medium cache for listing
+    response.headers.set('Cache-Control', `public, max-age=${MEDIUM_CACHE}, s-maxage=${MEDIUM_CACHE}`);
+    return response;
     
   } catch (error) {
     console.error('Error in results API:', error);

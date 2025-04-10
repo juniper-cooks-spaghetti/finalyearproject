@@ -1,6 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-
 export type SearchResult = {
   title: string;
   url: string;
@@ -10,7 +7,7 @@ export type SearchResult = {
   relevanceScore: number;
 };
 
-export type SearchStatus = 'pending' | 'completed' | 'timeout' | 'error';
+export type SearchStatus = 'pending' | 'completed' | 'timeout' | 'error' | 'queued';
 
 export type SearchEntry = {
   searchId: string; // This is the same as runId for consistency
@@ -21,79 +18,224 @@ export type SearchEntry = {
   results?: SearchResult[];
   error?: string;
   lastAccessed?: Date; // Track when this entry was last accessed for LRU
+  queuePosition?: number; // Position in the queue if queued
+  expiresAt: Date; // When this entry expires from cache
+};
+
+// Type for active search lock
+type SearchLock = {
+  query: string;
+  runId: string;
+  timestamp: Date;
+  releaseTimeout: NodeJS.Timeout;
 };
 
 class SearchCache {
   private cache: Map<string, SearchEntry> = new Map();
-  private readonly TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
-  private readonly CACHE_DIR = path.join(process.cwd(), 'data/search-results');
-  private readonly MAX_CACHE_SIZE = 10; // LRU cache limit of 10 items
+  private readonly TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes timeout (reduced from 5)
+  private readonly MAX_CACHE_SIZE = 20; // Increased cache size slightly from 10
+  private readonly CACHE_TTL_MS = 30 * 60 * 1000; // Cache entries expire after 30 minutes
+  
+  // Search locking system
+  private activeSearches: Map<string, SearchLock> = new Map(); // Query -> Lock mapping
+  private searchQueue: Array<{query: string, resolve: (value: string | null) => void, reject: (reason: Error) => void}> = [];
+  private isProcessingQueue = false;
+  private readonly MAX_CONCURRENT_SEARCHES = 2; // Maximum searches that can run in parallel
+  private readonly LOCK_TIMEOUT_MS = 30 * 1000; // 30 seconds max lock time
+  
+  // Track timeout references to cancel them when a search completes
+  private timeoutRefs: Map<string, NodeJS.Timeout> = new Map();
 
-  constructor() {
-    this.ensureCacheDirectory();
-    this.loadCachedResults();
+  // Dump the current cache state for debugging
+  public dumpCacheState(): object {
+    const cacheEntries = Array.from(this.cache.entries()).map(([key, entry]) => {
+      return {
+        runId: key,
+        query: entry.query,
+        status: entry.status,
+        timestamp: entry.timestamp.toISOString(),
+        expiresAt: entry.expiresAt.toISOString(),
+        hasResults: entry.results ? entry.results.length : 0,
+      };
+    });
+
+    const activeSearches = Array.from(this.activeSearches.entries()).map(([query, lock]) => {
+      return {
+        query,
+        runId: lock.runId,
+        timestamp: lock.timestamp.toISOString(),
+      };
+    });
+
+    const timeouts = Array.from(this.timeoutRefs.keys());
+
+    return {
+      cacheSize: this.cache.size,
+      activeSearches: this.activeSearches.size,
+      queueLength: this.searchQueue.length,
+      activeTimeouts: this.timeoutRefs.size,
+      entries: cacheEntries,
+      locks: activeSearches,
+      timeouts,
+    };
   }
 
-  private ensureCacheDirectory() {
-    if (!fs.existsSync(this.CACHE_DIR)) {
-      try {
-        fs.mkdirSync(this.CACHE_DIR, { recursive: true });
-        console.log('Created search cache directory:', this.CACHE_DIR);
-      } catch (error) {
-        console.error('Error creating search cache directory:', error);
+  /**
+   * Check if a search is already in progress for a given query
+   * @param query The search query to check
+   * @returns True if the search is in progress, false otherwise
+   */
+  public isSearchInProgress(query: string): boolean {
+    const normalizedQuery = query.toLowerCase().trim();
+    return this.activeSearches.has(normalizedQuery);
+  }
+
+  /**
+   * Get number of active searches currently in progress
+   */
+  public getActiveSearchCount(): number {
+    return this.activeSearches.size;
+  }
+
+  /**
+   * Get number of searches in queue
+   */
+  public getQueueLength(): number {
+    return this.searchQueue.length;
+  }
+
+  /**
+   * Queue a search or return existing search if one is already in progress
+   * @param query The search query to add to the queue
+   * @returns Promise that resolves with the runId when the search can proceed, or null if search is already completed
+   */
+  public async queueSearch(query: string): Promise<string | null> {
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    // Check if search is already completed in cache
+    const cachedSearch = this.findSearchByQuery(normalizedQuery);
+    if (cachedSearch && cachedSearch.status === 'completed' && cachedSearch.results) {
+      console.log(`Search for "${query}" already completed in cache`);
+      return null; // No need to queue, return null to indicate we should use cached results
+    }
+    
+    // Check if search is already in progress
+    if (this.isSearchInProgress(normalizedQuery)) {
+      console.log(`Search for "${query}" is already in progress, waiting for it to complete`);
+      const lock = this.activeSearches.get(normalizedQuery);
+      if (lock) {
+        return lock.runId; // Return the existing runId
       }
     }
+    
+    // If we have capacity to run more searches, proceed immediately
+    if (this.activeSearches.size < this.MAX_CONCURRENT_SEARCHES) {
+      const runId = this.lockSearch(normalizedQuery);
+      console.log(`Search for "${query}" can proceed immediately with runId ${runId}`);
+      return runId;
+    }
+    
+    // Otherwise, add to queue and wait
+    console.log(`Search for "${query}" added to queue (position ${this.searchQueue.length + 1})`);
+    return new Promise((resolve, reject) => {
+      this.searchQueue.push({
+        query: normalizedQuery,
+        resolve,
+        reject
+      });
+    });
   }
 
-  private loadCachedResults() {
+  /**
+   * Lock a search and return a runId
+   * @param query The search query to lock
+   * @returns The runId for the search
+   */
+  private lockSearch(query: string): string {
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    // Generate a runId (in a real implementation, this would come from Apify)
+    const runId = `search_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    
+    // Create a timeout to auto-release the lock after a certain time
+    const releaseTimeout = setTimeout(() => {
+      console.log(`Search lock for "${query}" auto-released after timeout`);
+      this.releaseSearchLock(normalizedQuery);
+    }, this.LOCK_TIMEOUT_MS);
+    
+    // Store the lock
+    this.activeSearches.set(normalizedQuery, {
+      query: normalizedQuery,
+      runId,
+      timestamp: new Date(),
+      releaseTimeout
+    });
+    
+    console.log(`Search lock acquired for "${query}" with runId ${runId}`);
+    return runId;
+  }
+
+  /**
+   * Release a search lock and process next item from queue
+   * @param query The search query to unlock
+   */
+  public releaseSearchLock(query: string): void {
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    const lock = this.activeSearches.get(normalizedQuery);
+    if (lock) {
+      // Clear the auto-release timeout
+      clearTimeout(lock.releaseTimeout);
+      this.activeSearches.delete(normalizedQuery);
+      console.log(`Search lock released for "${query}"`);
+    }
+    
+    // Process next item in queue
+    this.processNextQueuedSearch();
+  }
+
+  /**
+   * Process the next search in the queue if any and if we have capacity
+   */
+  private processNextQueuedSearch(): void {
+    if (this.isProcessingQueue) return; // Prevent concurrent processing
+    
+    this.isProcessingQueue = true;
+    
     try {
-      if (!fs.existsSync(this.CACHE_DIR)) return;
-
-      const files = fs.readdirSync(this.CACHE_DIR);
-      console.log(`Loading ${files.length} cached search results`);
-
-      for (const file of files) {
-        if (file.endsWith('.json')) {
-          try {
-            const filePath = path.join(this.CACHE_DIR, file);
-            const content = fs.readFileSync(filePath, 'utf-8');
-            const data = JSON.parse(content);
-            
-            // Handle different file formats
-            if (data.searchId && data.runId) {
-              // This is our standard format
-              const entry: SearchEntry = {
-                ...data,
-                timestamp: new Date(data.timestamp)
-              };
-              
-              this.cache.set(entry.runId, entry);
-              
-            } else if (data.metadata && data.metadata.runId) {
-              // This is the raw results format from Apify
-              const runId = data.metadata.runId;
-              const query = data.metadata.query || data.metadata.searchTerm || 'unknown_query';
-              
-              // Create a search entry from this data
-              if (!this.cache.has(runId)) {
-                this.cache.set(runId, {
-                  searchId: runId,
-                  runId: runId,
-                  query: query,
-                  timestamp: new Date(data.metadata.timestamp || new Date()),
-                  status: 'completed'
-                });
-              }
-            }
-          } catch (readError) {
-            console.error(`Error reading cache file ${file}:`, readError);
-          }
-        }
+      // If we're at capacity or the queue is empty, nothing to do
+      if (this.activeSearches.size >= this.MAX_CONCURRENT_SEARCHES || this.searchQueue.length === 0) {
+        this.isProcessingQueue = false;
+        return;
       }
       
-      console.log(`Loaded ${this.cache.size} search entries`);
+      // Get the next search from the queue
+      const nextSearch = this.searchQueue.shift();
+      if (!nextSearch) {
+        this.isProcessingQueue = false;
+        return;
+      }
+      
+      // Check if this search is still needed
+      const cachedSearch = this.findSearchByQuery(nextSearch.query);
+      if (cachedSearch && cachedSearch.status === 'completed' && cachedSearch.results) {
+        console.log(`Queued search for "${nextSearch.query}" no longer needed, already completed`);
+        nextSearch.resolve(null); // Resolve with null to indicate we should use cached results
+        
+        // Try to process another one
+        this.isProcessingQueue = false;
+        this.processNextQueuedSearch();
+        return;
+      }
+      
+      // Lock the search and resolve the promise with the runId
+      const runId = this.lockSearch(nextSearch.query);
+      console.log(`Processing queued search for "${nextSearch.query}" with runId ${runId}`);
+      nextSearch.resolve(runId);
     } catch (error) {
-      console.error('Error loading cached search results:', error);
+      console.error('Error processing search queue:', error);
+    } finally {
+      this.isProcessingQueue = false;
     }
   }
 
@@ -102,28 +244,48 @@ class SearchCache {
     // Check if we need to evict the least recently used entry
     this.enforceCacheSizeLimit();
 
+    // Calculate expiration time
+    const expiresAt = new Date(Date.now() + this.CACHE_TTL_MS);
+    
     const entry: SearchEntry = {
       searchId: runId, // Use runId as searchId for consistency
       runId,
       query,
       timestamp: new Date(),
       lastAccessed: new Date(), // Initialize lastAccessed time
-      status: 'pending'
+      status: 'pending',
+      expiresAt
     };
 
     this.cache.set(runId, entry);
-    this.saveSearchEntry(entry);
     
-    // Set timeout to mark as timed out after 5 minutes
-    setTimeout(() => {
+    // Set timeout to mark as timed out after timeout period
+    // Store the timeout reference so we can cancel it if the search completes
+    const timeoutRef = setTimeout(() => {
       const entry = this.cache.get(runId);
       if (entry && entry.status === 'pending') {
+        console.log(`Search timeout triggered for runId: ${runId}, query: "${query}"`);
         entry.status = 'timeout';
-        entry.error = 'Search timed out after 5 minutes';
+        entry.error = `Search timed out after ${this.TIMEOUT_MS / 1000} seconds`;
         this.cache.set(runId, entry);
-        this.saveSearchEntry(entry);
+        
+        // Release the lock for this search query
+        this.releaseSearchLock(query);
       }
+      
+      // Remove the timeout reference
+      this.timeoutRefs.delete(runId);
     }, this.TIMEOUT_MS);
+    
+    // Store the timeout reference
+    this.timeoutRefs.set(runId, timeoutRef);
+    console.log(`Set timeout for search ${runId}, query: "${query}", will expire in ${this.TIMEOUT_MS / 1000} seconds`);
+    
+    // Set timeout to remove entry from cache after TTL expires
+    setTimeout(() => {
+      console.log(`Cache TTL expired for runId: ${runId}, query: "${query}"`);
+      this.cache.delete(runId);
+    }, this.CACHE_TTL_MS);
   }
   
   // Update a search status when results are available
@@ -134,19 +296,34 @@ class SearchCache {
       return false;
     }
     
+    // Cancel the timeout for this search if it exists
+    if (this.timeoutRefs.has(runId)) {
+      console.log(`Cancelling timeout for completed search ${runId}`);
+      clearTimeout(this.timeoutRefs.get(runId));
+      this.timeoutRefs.delete(runId);
+    }
+
+    // Calculate a new expiration time
+    const expiresAt = new Date(Date.now() + this.CACHE_TTL_MS);
+    
     const updatedEntry: SearchEntry = {
       ...entry,
       status: 'completed',
       results,
       timestamp: new Date(), // Update the timestamp to when we got results
-      lastAccessed: new Date() // Update last accessed time
+      lastAccessed: new Date(), // Update last accessed time
+      expiresAt
     };
 
     this.cache.set(runId, updatedEntry);
-    this.saveSearchEntry(updatedEntry);
     
-    // Instead of creating a file, just update the in-memory mapping
-    console.log(`Updated in-memory mapping for query: "${updatedEntry.query}" pointing to runId: ${runId}`);
+    // Release the search lock to allow another search to proceed
+    this.releaseSearchLock(entry.query);
+    
+    console.log(`Completed search for "${entry.query}" with runId ${runId}, results: ${results.length}`);
+    
+    // Debug: Dump the entire cache state after completion
+    console.log(`Cache state after completing ${runId}:`, JSON.stringify(this.dumpCacheState(), null, 2).slice(0, 1000));
     
     return true;
   }
@@ -154,8 +331,20 @@ class SearchCache {
   // Mark a search as errored
   public errorSearch(runId: string, error: string): boolean {
     const entry = this.cache.get(runId);
+    
+    // Cancel the timeout for this search if it exists
+    if (this.timeoutRefs.has(runId)) {
+      console.log(`Cancelling timeout for errored search ${runId}`);
+      clearTimeout(this.timeoutRefs.get(runId));
+      this.timeoutRefs.delete(runId);
+    }
+    
     if (!entry) {
       console.warn(`errorSearch: No search entry found for runId: ${runId}`);
+      
+      // Calculate expiration time
+      const expiresAt = new Date(Date.now() + this.CACHE_TTL_MS);
+      
       // Create a minimal entry for this error
       const newEntry: SearchEntry = {
         searchId: runId,
@@ -163,10 +352,10 @@ class SearchCache {
         query: 'unknown_query',
         timestamp: new Date(),
         status: 'error',
-        error
+        error,
+        expiresAt
       };
       this.cache.set(runId, newEntry);
-      this.saveSearchEntry(newEntry);
       return true;
     }
     
@@ -177,34 +366,12 @@ class SearchCache {
     };
 
     this.cache.set(runId, updatedEntry);
-    this.saveSearchEntry(updatedEntry);
+    
+    // Release the search lock to allow another search to proceed
+    this.releaseSearchLock(entry.query);
+    
+    console.log(`Marked search for "${entry.query}" with runId ${runId} as error: ${error}`);
     return true;
-  }
-  
-  // Save search entry to disk
-  private saveSearchEntry(entry: SearchEntry): void {
-    try {
-      this.ensureCacheDirectory();
-      
-      // Save by runId - this is the canonical file
-      const runIdPath = path.join(this.CACHE_DIR, `${entry.runId}.json`);
-      fs.writeFileSync(runIdPath, JSON.stringify(entry, null, 2), 'utf-8');
-      
-      console.log(`Saved search entry for runId: ${entry.runId}, query: ${entry.query}`);
-    } catch (error) {
-      console.error('Error saving search entry:', error);
-    }
-  }
-  
-  // Save a lookup file by query to help find results later
-  private saveQueryLookup(query: string, runId: string): void {
-    try {
-      // We'll maintain the query-to-runId mapping only in memory
-      // but do not write additional files to the filesystem
-      console.log(`Created query mapping for "${query}" pointing to runId: ${runId}`);
-    } catch (error) {
-      console.error(`Error saving query lookup for "${query}":`, error);
-    }
   }
   
   // Get a specific search by runId - this is the primary lookup
@@ -212,6 +379,13 @@ class SearchCache {
     const entry = this.cache.get(runId);
     
     if (entry) {
+      // Check if entry has expired
+      if (entry.expiresAt && entry.expiresAt < new Date()) {
+        console.log(`Cache entry for runId ${runId} has expired, removing from cache`);
+        this.cache.delete(runId);
+        return undefined;
+      }
+      
       // Update the last accessed time for LRU tracking
       entry.lastAccessed = new Date();
       this.cache.set(runId, entry);
@@ -224,39 +398,16 @@ class SearchCache {
   public findSearchByQuery(query: string): SearchEntry | undefined {
     const normalizedQuery = query.toLowerCase().trim();
     
-    // First check memory cache
+    // Check memory cache
     for (const entry of this.cache.values()) {
-      if (entry.query.toLowerCase().trim() === normalizedQuery && entry.status === 'completed') {
+      if (entry.query.toLowerCase().trim() === normalizedQuery && 
+          entry.status === 'completed' &&
+          (!entry.expiresAt || entry.expiresAt > new Date())) {
         // Update the last accessed time for LRU tracking
         entry.lastAccessed = new Date();
         this.cache.set(entry.runId, entry);
         return entry;
       }
-    }
-    
-    // If not found in memory, try checking for a query lookup file
-    try {
-      const queryFileName = `query_${normalizedQuery.replace(/[^a-z0-9]/g, '_')}.json`;
-      const queryPath = path.join(this.CACHE_DIR, queryFileName);
-      
-      if (fs.existsSync(queryPath)) {
-        const content = fs.readFileSync(queryPath, 'utf-8');
-        const entry = JSON.parse(content) as SearchEntry;
-        
-        // Add to memory cache
-        if (entry && entry.runId) {
-          entry.timestamp = new Date(entry.timestamp);
-          entry.lastAccessed = new Date(); // Set last accessed time
-          this.cache.set(entry.runId, entry);
-          
-          // Check if we need to evict the least recently used entry
-          this.enforceCacheSizeLimit();
-          
-          return entry;
-        }
-      }
-    } catch (error) {
-      console.error(`Error finding search by query "${query}":`, error);
     }
     
     return undefined;
@@ -268,7 +419,9 @@ class SearchCache {
     let latestTime = new Date(0);
     
     for (const entry of this.cache.values()) {
-      if (entry.status === 'completed' && entry.timestamp > latestTime) {
+      if (entry.status === 'completed' && 
+          entry.timestamp > latestTime &&
+          (!entry.expiresAt || entry.expiresAt > new Date())) {
         latestTime = entry.timestamp;
         latestEntry = entry;
       }
@@ -303,51 +456,58 @@ class SearchCache {
   
   // Enforce the cache size limit using LRU policy
   private enforceCacheSizeLimit(): void {
+    // First remove any expired entries
+    const now = new Date();
+    for (const [key, entry] of this.cache.entries()) {
+      if (entry.expiresAt && entry.expiresAt < now) {
+        this.cache.delete(key);
+        console.log(`Removed expired cache entry for query "${entry.query}" with runId ${key}`);
+      }
+    }
+    
+    // Then remove oldest entries if still over limit
     while (this.cache.size >= this.MAX_CACHE_SIZE) {
       const lruKey = this.findLeastRecentlyUsedEntry();
       if (lruKey) {
         const evictedEntry = this.cache.get(lruKey);
         this.cache.delete(lruKey);
         console.log(`LRU cache eviction: removed entry for query "${evictedEntry?.query}" with runId ${lruKey}`);
-        
-        // Note: We don't delete the file from disk, just from memory cache
-        // This allows us to potentially reload it later if needed
       } else {
         break; // Safety check in case we can't find an LRU entry
       }
     }
   }
   
-  // Clear all cache entries both in memory and file system
+  // Clear all cache entries
   public clearCache(): { success: boolean, deletedCount: number } {
     try {
-      // Clear memory cache first
+      // Get current cache size
       const cacheSize = this.cache.size;
+      
+      // Clear memory cache
       this.cache.clear();
       console.log(`Cleared in-memory search cache with ${cacheSize} entries`);
       
-      // Then clear file system cache if directory exists
-      if (fs.existsSync(this.CACHE_DIR)) {
-        const files = fs.readdirSync(this.CACHE_DIR);
-        let deletedCount = 0;
-        
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            try {
-              const filePath = path.join(this.CACHE_DIR, file);
-              fs.unlinkSync(filePath);
-              deletedCount++;
-            } catch (error) {
-              console.error(`Error deleting cache file ${file}:`, error);
-            }
-          }
-        }
-        
-        console.log(`Deleted ${deletedCount} cache files from ${this.CACHE_DIR}`);
-        return { success: true, deletedCount };
+      // Cancel all timeouts
+      for (const [runId, timeout] of this.timeoutRefs.entries()) {
+        clearTimeout(timeout);
+        console.log(`Cancelled timeout for ${runId}`);
       }
+      this.timeoutRefs.clear();
       
-      return { success: true, deletedCount: 0 };
+      // Cancel and clear all active searches
+      for (const [query, lock] of this.activeSearches.entries()) {
+        clearTimeout(lock.releaseTimeout);
+      }
+      this.activeSearches.clear();
+      
+      // Clear the search queue and reject all pending promises
+      for (const queuedSearch of this.searchQueue) {
+        queuedSearch.reject(new Error('Search queue cleared'));
+      }
+      this.searchQueue = [];
+      
+      return { success: true, deletedCount: cacheSize };
     } catch (error) {
       console.error('Error clearing search cache:', error);
       return { success: false, deletedCount: 0 };

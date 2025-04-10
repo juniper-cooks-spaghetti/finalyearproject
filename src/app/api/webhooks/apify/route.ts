@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import searchCache from '@/lib/searchCache';
 import type { SearchResult } from '@/lib/searchCache';
 
@@ -9,15 +7,17 @@ export const dynamic = 'force-dynamic';
 export const preferredRegion = ['auto'];
 export const maxDuration = 60; // Keep request open for 60 seconds
 
-// Config for data storage
-const RESULTS_DIR = path.join(process.cwd(), 'data', 'search-results');
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
+const API_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 // Process webhook data from Apify
 export async function POST(request: NextRequest) {
   console.log('Apify webhook called');
   
   try {
+    // Log the current cache state before processing
+    console.log('Cache state before processing webhook:', JSON.stringify(searchCache.dumpCacheState(), null, 2).slice(0, 1000));
+    
     // Log raw request body for detailed debugging
     const rawBody = await request.text();
     console.log('Webhook received raw body:', rawBody);
@@ -88,6 +88,11 @@ type ApifyWebhookPayload = {
     actorId?: string;
     actorTaskId?: string;
     actorRunId?: string;
+    searchQuery?: string;
+    input?: {
+      queries?: string;
+      searchQueries?: Array<{ term?: string }>;
+    };
     [key: string]: any;
   };
   resource: {
@@ -103,6 +108,66 @@ type ApifyWebhookPayload = {
     [key: string]: any;
   };
 };
+
+/**
+ * Extract search query from Apify webhook payload
+ */
+function extractSearchQuery(payload: ApifyWebhookPayload): string {
+  // Try to get the query from different possible locations in the payload
+  
+  // 1. Try to get from eventData.searchQuery directly
+  if (payload.eventData?.searchQuery) {
+    return payload.eventData.searchQuery;
+  }
+  
+  // 2. Try to get from eventData.input.queries (common format for Google SERP tasks)
+  if (payload.eventData?.input?.queries) {
+    return payload.eventData.input.queries;
+  }
+  
+  // 3. Try to get from searchQueries array (sometimes used in Apify)
+  if (Array.isArray(payload.eventData?.input?.searchQueries) && 
+      payload.eventData?.input?.searchQueries.length > 0) {
+    const firstQuery = payload.eventData.input.searchQueries[0];
+    if (firstQuery && firstQuery.term) {
+      return firstQuery.term;
+    }
+  }
+  
+  // If we can't find a query, return a default
+  return "unknown_query";
+}
+
+/**
+ * Call the results API to warmup the cache for this search
+ * This helps ensure the search is accessible even if webhook processing gets interrupted
+ * @param runId The search/run ID
+ */
+async function warmupResultsCache(runId: string): Promise<void> {
+  try {
+    const url = `${API_URL}/api/admin/scraper/results?runId=${runId}`;
+    console.log(`Warming up results cache for runId ${runId} by calling: ${url}`);
+    
+    // Make a non-blocking request to the results API
+    // We don't need to await the response, this is just to ensure the results
+    // are cached and accessible even if the webhook times out
+    fetch(url, { 
+      method: 'GET',
+      headers: { 'Cache-Control': 'no-cache' }
+    })
+    .then(response => {
+      console.log(`Warmup request for ${runId} completed with status: ${response.status}`);
+    })
+    .catch(error => {
+      console.error(`Error in warmup request for ${runId}:`, error);
+    });
+    
+    console.log(`Warmup request initiated for ${runId}`);
+  } catch (error) {
+    console.error(`Failed to warmup results cache for ${runId}:`, error);
+    // Non-critical error, don't throw
+  }
+}
 
 /**
  * Handle successful actor run event
@@ -121,36 +186,53 @@ async function handleActorRunSucceeded(payload: ApifyWebhookPayload) {
   const datasetId = resource.defaultDatasetId;
   const actorId = resource.actId || 'unknown';
   
-  // Validate required fields
-  if (!datasetId) {
-    console.error('Missing dataset ID in webhook payload:', JSON.stringify(payload).slice(0, 500));
-    // We can't proceed without a dataset ID
-    console.log(`Marking search with runId: ${runId} as error due to missing dataset ID`);
-    searchCache.errorSearch(runId, 'Missing dataset ID in webhook response');
-    
-    return NextResponse.json({
-      error: 'Missing required fields',
-      message: 'The webhook payload is missing datasetId'
-    }, { status: 400 });
-  }
+  // Start a timer to track processing time - important for serverless timeout management
+  const startTime = Date.now();
+  const timeLeft = () => {
+    const elapsed = Date.now() - startTime;
+    return Math.max(0, 50000 - elapsed); // 50s safety threshold (under the 60s max)
+  };
   
-  // Look up the search in our cache using the runId - instead of creating a new entry
-  const searchEntry = searchCache.getSearchById(runId);
-  
-  if (!searchEntry) {
-    console.log(`No search entry found for runId: ${runId}. This might be an unexpected run.`);
-  } else {
-    console.log(`Found search entry for runId: ${runId}, query: ${searchEntry.query}`);
-  }
-  
-  const query = searchEntry?.query || "unknown_query";
-  
-  console.log(`Processing successful run: ${runId} (Actor: ${actorId}, Query: ${query})`);
-  console.log(`Fetching dataset: ${datasetId}`);
+  // Dump the current cache state
+  console.log('Cache state details before processing results:');
+  console.log(`Memory cache for ${runId}: ${searchCache.getSearchById(runId) ? 'found' : 'not found'}`);
   
   try {
-    // Ensure the results directory exists
-    await fs.mkdir(RESULTS_DIR, { recursive: true });
+    // Validate required fields
+    if (!datasetId) {
+      console.error('Missing dataset ID in webhook payload:', JSON.stringify(payload).slice(0, 500));
+      // We can't proceed without a dataset ID
+      console.log(`Marking search with runId: ${runId} as error due to missing dataset ID`);
+      searchCache.errorSearch(runId, 'Missing dataset ID in webhook response');
+      
+      return NextResponse.json({
+        error: 'Missing required fields',
+        message: 'The webhook payload is missing datasetId'
+      }, { status: 400 });
+    }
+    
+    // Look up the search in our cache using the runId - instead of creating a new entry
+    const searchEntry = searchCache.getSearchById(runId);
+    
+    // Extract query from payload if not found in cache
+    let query = "unknown_query";
+    
+    if (searchEntry) {
+      console.log(`Found search entry for runId: ${runId}, query: ${searchEntry.query}, status: ${searchEntry.status}`);
+      query = searchEntry.query;
+    } else {
+      // Try to extract query from the payload
+      query = extractSearchQuery(payload);
+      console.log(`Extracted initial query from payload: "${query}"`);
+    }
+    
+    console.log(`Processing successful run: ${runId} (Actor: ${actorId}, Query: ${query})`);
+    console.log(`Fetching dataset: ${datasetId}`);
+    
+    // Check time remaining before fetching dataset
+    if (timeLeft() < 30000) { // If less than 30 seconds left
+      console.warn(`Low time remaining (${timeLeft()}ms), processing may be at risk of timeout`);
+    }
     
     // Fetch the dataset items from Apify
     const apiUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_TOKEN}`;
@@ -178,39 +260,63 @@ async function handleActorRunSucceeded(payload: ApifyWebhookPayload) {
     
     if (Array.isArray(rawResults)) {
       console.log(`Dataset contains ${rawResults.length} items`);
+      
+      // If we still have an unknown query, try to extract it from the dataset
+      if (query === "unknown_query" && rawResults.length > 0) {
+        // Try to extract query from the first item of the results array
+        if (rawResults[0] && rawResults[0].searchQuery && rawResults[0].searchQuery.term) {
+          const extractedQuery = rawResults[0].searchQuery.term;
+          
+          // Clean up the extracted query: Remove URLs and clean spaces
+          const cleanedQuery = extractedQuery
+            .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
+            .replace(/\s+/g, ' ')              // Normalize spaces
+            .trim();                           // Trim whitespace
+          
+          if (cleanedQuery) {
+            query = cleanedQuery;
+            console.log(`Extracted query from dataset: "${query}"`);
+          }
+        }
+      }
     } else {
       console.log('Dataset is not an array, structure:', Object.keys(rawResults));
+    }
+    
+    // Check time remaining before transformation
+    if (timeLeft() < 20000) { // If less than 20 seconds left
+      console.warn(`Low time remaining (${timeLeft()}ms) before transformation, risk of timeout`);
     }
     
     // Transform the results into our application format
     const transformedResults = transformApifyResults(rawResults, query);
     console.log(`Transformed ${transformedResults.length} search results`);
     
-    // Save the raw results to file - only create one file with the runId as name
-    const filename = `${runId}.json`;
-    const resultData = {
-      searchId: runId,  // Use runId as searchId for consistency
-      runId,
-      query,
-      timestamp: new Date().toISOString(),
-      status: 'completed',
-      results: transformedResults
-    };
-
-    const filePath = path.join(RESULTS_DIR, filename);
-    await fs.writeFile(filePath, JSON.stringify(resultData, null, 2));
-    console.log(`Saved results to ${filePath}`);
-
-    // Update the search status to completed with the results
+    // Check time remaining before updating cache
+    if (timeLeft() < 10000) { // If less than 10 seconds left
+      console.warn(`Very low time remaining (${timeLeft()}ms), completing critical operations`);
+    }
+    
+    // CRITICAL OPERATION: Update the search status in cache with the results
+    // If webhook times out after this point, the results will still be available
     if (searchEntry) {
       searchCache.completeSearch(runId, transformedResults);
       console.log(`Updated search cache for runId: ${runId}, status now set to completed`);
     } else {
-      // Create a new entry if one doesn't exist (unlikely but possible)
+      // Create a new entry if one doesn't exist (for runs initiated outside our system)
       searchCache.addSearch(runId, runId, query);
       searchCache.completeSearch(runId, transformedResults);
-      console.log(`Created and completed new search entry for runId: ${runId}`);
+      console.log(`Created and completed new search entry for runId: ${runId}, query: "${query}"`);
     }
+
+    // IMPORTANT: Immediately warmup the results API cache 
+    // This ensures the results are accessible even if this webhook execution times out
+    await warmupResultsCache(runId);
+    
+    // Final log showing the state after processing
+    console.log('Cache state after processing:');
+    console.log(`Memory cache entry for ${runId}: ${searchCache.getSearchById(runId)?.status || 'not found'}`);
+    console.log(`Total processing time: ${Date.now() - startTime}ms`);
     
     return NextResponse.json({
       success: true,
@@ -218,7 +324,8 @@ async function handleActorRunSucceeded(payload: ApifyWebhookPayload) {
       runId,
       datasetId,
       query,
-      resultsCount: transformedResults.length
+      resultsCount: transformedResults.length,
+      processingTimeMs: Date.now() - startTime
     });
     
   } catch (error) {
@@ -226,11 +333,19 @@ async function handleActorRunSucceeded(payload: ApifyWebhookPayload) {
     console.log(`Marking search with runId: ${runId} as error due to processing exception`);
     searchCache.errorSearch(runId, error instanceof Error ? error.message : 'Unknown error processing dataset');
     
+    // Even in error case, try to warmup the error result
+    try {
+      await warmupResultsCache(runId);
+    } catch (warmupError) {
+      console.error(`Failed to warmup error results for ${runId}:`, warmupError);
+    }
+    
     return NextResponse.json({
       error: 'Dataset processing failed',
       message: error instanceof Error ? error.message : 'Unknown error',
       runId,
-      datasetId
+      datasetId,
+      processingTimeMs: Date.now() - startTime
     }, { status: 500 });
   }
 }

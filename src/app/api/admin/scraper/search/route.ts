@@ -51,6 +51,44 @@ export async function POST(request: NextRequest) {
         status: 'completed'
       });
     }
+
+    // Queue the search and get a runId when it can proceed
+    // This will wait if there are too many active searches
+    // or return null if we found a cached result
+    let runId;
+    try {
+      console.log(`Queueing search for "${query}"`);
+      runId = await searchCache.queueSearch(query);
+      
+      // If null is returned, it means the search was found in cache
+      if (runId === null) {
+        // Try to find it in the cache again (might have been added since our last check)
+        const freshCacheCheck = searchCache.findSearchByQuery(query);
+        if (freshCacheCheck && freshCacheCheck.status === 'completed' && freshCacheCheck.results) {
+          console.log(`Search for "${query}" completed while queueing`);
+          return NextResponse.json({
+            success: true,
+            cached: true,
+            searchId: freshCacheCheck.searchId,
+            runId: freshCacheCheck.runId,
+            results: freshCacheCheck.results,
+            status: 'completed'
+          });
+        }
+        
+        // This shouldn't happen, but if it does, we'll create a new search below
+        console.log(`Unexpected null runId for "${query}" without cached results`);
+      } else {
+        console.log(`Search for "${query}" is ready to proceed with runId ${runId}`);
+      }
+    } catch (queueError) {
+      console.error(`Error queueing search for "${query}":`, queueError);
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to queue search',
+        message: queueError instanceof Error ? queueError.message : 'Unknown error'
+      }, { status: 500 });
+    }
     
     // Format the domain URLs for the Apify task
     let formattedQuery = query.trim();
@@ -60,8 +98,8 @@ export async function POST(request: NextRequest) {
       formattedQuery = `${formattedQuery} ${domains.join(' ')}`;
     }
     
-    // Create a unique search ID for this request - we'll use UUID for our internal tracking
-    const searchId = uuidv4();
+    // Create a unique search ID for this request if we don't have one yet
+    const searchId = runId || uuidv4();
     
     // Build the webhook URL - this is where Apify will send the results
     const webhookUrl = `${API_URL}/api/webhooks/apify`;
@@ -101,6 +139,11 @@ export async function POST(request: NextRequest) {
       const errorText = await response.text();
       console.error(`Apify API error (${response.status}):`, errorText);
       
+      // Release the lock if we had one so another search can proceed
+      if (runId) {
+        searchCache.releaseSearchLock(query);
+      }
+      
       return NextResponse.json({
         success: false,
         error: 'Failed to start search task',
@@ -114,6 +157,12 @@ export async function POST(request: NextRequest) {
     
     if (!data.data || !data.data.id) {
       console.error('Invalid response from Apify:', data);
+      
+      // Release the lock if we had one
+      if (runId) {
+        searchCache.releaseSearchLock(query);
+      }
+      
       return NextResponse.json({
         success: false, 
         error: 'Invalid Apify response format',
@@ -121,21 +170,29 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
     
-    // Get the run ID - this will be our primary key for tracking this search
-    const runId = data.data.id;
-    console.log(`Apify search started with runId: ${runId}`);
+    // Get the run ID from Apify
+    const apifyRunId = data.data.id;
+    console.log(`Apify search started with runId: ${apifyRunId}`);
     
     // Register this search in our cache with pending status
-    searchCache.addSearch(runId, searchId, query);
-    console.log(`Registered search in cache: runId=${runId}, searchId=${searchId}, query="${query}"`);
+    searchCache.addSearch(apifyRunId, searchId, query);
+    console.log(`Registered search in cache: runId=${apifyRunId}, searchId=${searchId}, query="${query}"`);
+    
+    // If we had our own temporary runId for queueing, we no longer need the lock with that ID
+    // The new apifyRunId will be used for tracking
+    if (runId && runId !== apifyRunId) {
+      searchCache.releaseSearchLock(query);
+    }
     
     // Return success response with runId
     return NextResponse.json({
       success: true,
       message: 'Search initiated successfully',
       searchId,
-      runId,
-      status: 'pending'
+      runId: apifyRunId,
+      status: 'pending',
+      activeSearches: searchCache.getActiveSearchCount(),
+      queueLength: searchCache.getQueueLength()
     });
     
   } catch (error) {
