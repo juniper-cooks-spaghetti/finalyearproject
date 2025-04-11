@@ -30,7 +30,12 @@ interface SearchResult {
   description: string;
   type: string;
   source: string;
+}
 
+interface TopicSuggestion {
+  id: string;
+  title: string;
+  description: string;
 }
 
 export function ContentTabs({ 
@@ -75,6 +80,14 @@ export function ContentTabs({
     // Reset search results when cache is deleted
     setSearchResults([]);
     setSearchRunId(null);
+  };
+
+  // Handle topic selection from the SearchForm component
+  const handleTopicSelected = (topic: TopicSuggestion) => {
+    if (topic && topic.id) {
+      console.log(`Topic selected in SearchForm: ${topic.title} (${topic.id})`);
+      setSelectedTopicId(topic.id);
+    }
   };
 
   return (
@@ -166,6 +179,8 @@ export function ContentTabs({
             <SearchForm 
               onResultsFound={(results, runId) => handleSearchResults(results, runId)} 
               isContentTab={true}
+              onTopicSelected={handleTopicSelected}
+              selectedTopicId={selectedTopicId}
             />
             
             {searchResults.length > 0 ? (

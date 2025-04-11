@@ -302,3 +302,210 @@ export async function updateTopic(data: {
     return { success: false, error: String(error) };
   }
 }
+
+/**
+ * Fetch topic details and all available roadmaps for editing
+ */
+export async function getTopicEditData(topicId: string) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+    
+    // Check if the user is an admin
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      select: { role: true }
+    });
+    
+    if (!user || user.role !== 'ADMIN') {
+      return { success: false, error: "Only admins can access topic edit data" };
+    }
+    
+    // Get the full topic details including description
+    const topic = await prisma.topic.findUnique({
+      where: { id: topicId },
+      include: {
+        roadmaps: {
+          include: {
+            roadmap: {
+              select: {
+                id: true,
+                title: true
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    if (!topic) {
+      return { success: false, error: "Topic not found" };
+    }
+    
+    // Get all roadmaps for the dropdown
+    const allRoadmaps = await prisma.roadmap.findMany({
+      select: {
+        id: true,
+        title: true,
+        category: true
+      },
+      orderBy: {
+        title: 'asc'
+      }
+    });
+    
+    // Format roadmaps for the dropdown
+    const roadmapOptions = allRoadmaps.map(roadmap => ({
+      value: roadmap.id,
+      label: roadmap.category 
+        ? `${roadmap.title} (${roadmap.category})`
+        : roadmap.title
+    }));
+    
+    // Get assigned roadmap IDs
+    const assignedRoadmapIds = topic.roadmaps.map(r => r.roadmap.id);
+    
+    return { 
+      success: true, 
+      topic,
+      roadmapOptions,
+      assignedRoadmapIds
+    };
+  } catch (error) {
+    console.error('Error getting topic edit data:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Update topic roadmap assignments
+ */
+export async function updateTopicRoadmaps(topicId: string, roadmapIds: string[]) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+    
+    // Check if the user is an admin
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      select: { role: true }
+    });
+    
+    if (!user || user.role !== 'ADMIN') {
+      return { success: false, error: "Only admins can update topic roadmaps" };
+    }
+    
+    // Get current roadmap assignments
+    const currentAssignments = await prisma.roadmapTopic.findMany({
+      where: {
+        topicId: topicId
+      },
+      select: {
+        roadmapId: true
+      }
+    });
+    
+    const currentRoadmapIds = currentAssignments.map(a => a.roadmapId);
+    
+    // Determine which roadmaps to add and which to remove
+    const roadmapsToAdd = roadmapIds.filter(id => !currentRoadmapIds.includes(id));
+    const roadmapsToRemove = currentRoadmapIds.filter(id => !roadmapIds.includes(id));
+    
+    // Create new assignments
+    if (roadmapsToAdd.length > 0) {
+      await Promise.all(
+        roadmapsToAdd.map(roadmapId => 
+          prisma.roadmapTopic.create({
+            data: {
+              roadmapId,
+              topicId
+            }
+          })
+        )
+      );
+    }
+    
+    // Remove old assignments
+    if (roadmapsToRemove.length > 0) {
+      await Promise.all(
+        roadmapsToRemove.map(roadmapId => 
+          prisma.roadmapTopic.delete({
+            where: {
+              roadmapId_topicId: {
+                roadmapId,
+                topicId
+              }
+            }
+          })
+        )
+      );
+    }
+    
+    revalidatePath('/admin/topics');
+    return { 
+      success: true,
+      stats: {
+        added: roadmapsToAdd.length,
+        removed: roadmapsToRemove.length
+      }
+    };
+  } catch (error) {
+    console.error('Error updating topic roadmaps:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Fetch all available roadmaps (for creating new topics)
+ */
+export async function getAllRoadmaps() {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+    
+    // Check if the user is an admin
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      select: { role: true }
+    });
+    
+    if (!user || user.role !== 'ADMIN') {
+      return { success: false, error: "Only admins can access roadmap data" };
+    }
+    
+    // Get all roadmaps with complete info
+    const allRoadmaps = await prisma.roadmap.findMany({
+      select: {
+        id: true,
+        title: true,
+        category: true
+      },
+      orderBy: {
+        title: 'asc'
+      }
+    });
+    
+    // Format roadmaps for the dropdown
+    const roadmapOptions = allRoadmaps.map(roadmap => ({
+      value: roadmap.id,
+      label: roadmap.category 
+        ? `${roadmap.title} (${roadmap.category})`
+        : roadmap.title
+    }));
+    
+    return { 
+      success: true, 
+      roadmaps: allRoadmaps,
+      roadmapOptions
+    };
+  } catch (error) {
+    console.error('Error getting roadmaps:', error);
+    return { success: false, error: String(error) };
+  }
+}

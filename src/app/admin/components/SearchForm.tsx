@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, Search, Trash2, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -15,6 +15,7 @@ import {
   AccordionItem, 
   AccordionTrigger 
 } from "@/components/ui/accordion";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 // Search domain options - these will be used to tailor search results
 const searchDomains = [
@@ -45,6 +46,14 @@ interface TopicSuggestion {
   description: string;
 }
 
+interface TopicNeedingContent {
+  id: string;
+  title: string;
+  contentCount: number;
+  suggestionCount: number;
+  urgent: boolean;
+}
+
 interface SearchResult {
   title: string;
   url: string;
@@ -56,9 +65,16 @@ interface SearchResult {
 interface SearchFormProps {
   onResultsFound: (results: SearchResult[], runId?: string) => void;
   isContentTab?: boolean; // To adjust UI based on which tab it's on
+  onTopicSelected?: (topic: TopicSuggestion) => void; // New prop for integration
+  selectedTopicId?: string; // New prop for integration
 }
 
-export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormProps) {
+export function SearchForm({ 
+  onResultsFound, 
+  isContentTab = true, 
+  onTopicSelected, 
+  selectedTopicId 
+}: SearchFormProps) {
   const [query, setQuery] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string>('coursera');
   const [isSearching, setIsSearching] = useState(false);
@@ -69,6 +85,10 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
   const [activeSearches, setActiveSearches] = useState<number>(0);
   const [queueLength, setQueueLength] = useState<number>(0);
   const { toast } = useToast();
+  
+  // Topics needing content state
+  const [topicsNeedingContent, setTopicsNeedingContent] = useState<TopicNeedingContent[]>([]);
+  const [isLoadingTopics, setIsLoadingTopics] = useState(false);
   
   // Topic suggestions state
   const [topicSuggestions, setTopicSuggestions] = useState<TopicSuggestion[]>([]);
@@ -81,6 +101,68 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
   
   // Cancel search timeout reference
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Update selectedTopic when selectedTopicId prop changes
+  useEffect(() => {
+    if (selectedTopicId && (!selectedTopic || selectedTopic.id !== selectedTopicId)) {
+      // Find the topic in suggestions
+      const foundTopic = topicSuggestions.find(topic => topic.id === selectedTopicId);
+      
+      if (foundTopic) {
+        setSelectedTopic(foundTopic);
+        setQuery(foundTopic.title);
+      }
+    }
+  }, [selectedTopicId, topicSuggestions, selectedTopic]);
+
+  // Handler for selecting a topic from the TopicsNeedingContent section
+  const handleTopicNeedingContentSelect = (topic: TopicNeedingContent) => {
+    // Convert the TopicNeedingContent to a format compatible with TopicSuggestion
+    const topicSuggestion: TopicSuggestion = {
+      id: topic.id,
+      title: topic.title,
+      description: `This topic has only ${topic.contentCount} content items. ${topic.urgent ? 'URGENT: Needs immediate attention!' : ''}`
+    };
+    
+    setSelectedTopic(topicSuggestion);
+    setQuery(topic.title);
+    
+    // Notify parent component about the selected topic
+    if (onTopicSelected) {
+      onTopicSelected(topicSuggestion);
+    }
+    
+    toast({
+      title: "Topic selected",
+      description: `Selected "${topic.title}" for content search`,
+      variant: "default"
+    });
+  };
+  
+  // Fetch topics needing content on component mount
+  useEffect(() => {
+    async function fetchTopicsNeedingContent() {
+      try {
+        setIsLoadingTopics(true);
+        const response = await fetch('/api/admin/content-analytics');
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to fetch content analytics data');
+        }
+        
+        const data = await response.json();
+        setTopicsNeedingContent(data.topicsNeedingContent || []);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        console.error('Error fetching topics needing content:', errorMessage);
+      } finally {
+        setIsLoadingTopics(false);
+      }
+    }
+
+    fetchTopicsNeedingContent();
+  }, []);
   
   // Fetch topic suggestions when debounced query changes
   useEffect(() => {
@@ -134,6 +216,18 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
     setQuery(topic.title);
     setSelectedTopic(topic);
     setAccordionOpen(undefined); // Close accordion after selection
+    
+    // Notify parent component about the selected topic
+    if (onTopicSelected) {
+      onTopicSelected(topic);
+    }
+    
+    // Provide user feedback
+    toast({
+      title: "Topic selected",
+      description: `Selected "${topic.title}" for content search`,
+      variant: "default"
+    });
   };
 
   // Clear search cache handler
@@ -421,6 +515,12 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
         const exactMatch = topicSuggestions.find(t => t.title.toLowerCase() === query.trim().toLowerCase());
         if (exactMatch) {
           setSelectedTopic(exactMatch);
+          
+          // Notify parent component about the selected topic
+          if (onTopicSelected) {
+            onTopicSelected(exactMatch);
+          }
+          
           validTopic = true;
         }
       }
@@ -575,128 +675,196 @@ export function SearchForm({ onResultsFound, isContentTab = true }: SearchFormPr
     return null;
   };
 
-  return (
-    <div className="space-y-4 p-4 border rounded-lg bg-card">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-medium">Search for Learning Content</h3>
-        
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={handleClearCache}
-          disabled={isClearingCache}
-        >
-          {isClearingCache ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-1" />
-          ) : (
-            <Trash2 className="h-4 w-4 mr-1" />
-          )}
-          Clear Cache
-        </Button>
-      </div>
-      
-      <form onSubmit={handleSearch} className="space-y-4">
-        {/* Search input with topic autocomplete */}
-        <div className="space-y-2">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search by topic name..."
-              className="pl-8"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSelectedTopic(null); // Clear selected topic when input changes
-              }}
-              disabled={isSearching}
-            />
-            {isLoadingSuggestions && (
-              <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
-            )}
-          </div>
+  // Render the TopicsNeedingContent section
+  const renderTopicsNeedingContent = () => {
+    if (isLoadingTopics) {
+      return (
+        <Card>
+          <CardContent className="flex items-center justify-center py-4">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
+      );
+    }
 
-          {/* Topic suggestions accordion */}
-          {topicSuggestions.length > 0 && (
-            <Accordion
-              type="single"
-              collapsible
-              className="border rounded-md"
-              value={accordionOpen}
-              onValueChange={setAccordionOpen}
-            >
-              <AccordionItem value="suggestions" className="border-0">
-                <AccordionTrigger className="px-4 py-2 text-sm hover:no-underline">
-                  <span className="flex items-center">
-                    <span>Topic Suggestions</span>
-                    <Badge className="ml-2" variant="secondary">
-                      {topicSuggestions.length}
-                    </Badge>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="max-h-60 overflow-y-auto">
-                    {topicSuggestions.map((topic) => (
-                      <div
-                        key={topic.id}
-                        className={`p-2 text-sm hover:bg-accent hover:text-accent-foreground cursor-pointer ${
-                          selectedTopic?.id === topic.id ? 'bg-accent text-accent-foreground' : ''
-                        }`}
-                        onClick={() => handleSelectTopic(topic)}
-                      >
-                        <div className="font-medium">{topic.title}</div>
-                        <div className="text-xs text-muted-foreground line-clamp-2">
-                          {topic.description}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          )}
-        </div>
+    if (!topicsNeedingContent || topicsNeedingContent.length === 0) {
+      return null;
+    }
 
-        {/* Status message and progress indicator */}
-        {renderStatusMessage()}
-
-        {/* Domain selection */}
-        <div>
-          <p className="text-sm text-muted-foreground mb-2">Select a platform to search:</p>
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg flex items-center">
+            <AlertTriangle className="mr-2 h-5 w-5 text-amber-500" />
+            Topics Needing Content
+          </CardTitle>
+          <CardDescription>Quick-select topics with the least amount of learning materials</CardDescription>
+        </CardHeader>
+        <CardContent>
           <div className="flex flex-wrap gap-2">
-            {searchDomains.map((domain) => (
-              <Badge
-                key={domain.value}
-                variant={selectedDomain === domain.value ? "default" : "outline"}
-                className="cursor-pointer"
-                onClick={() => handleDomainChange(domain.value)}
+            {topicsNeedingContent.map((topic) => (
+              <Button
+                key={topic.id}
+                variant={topic.urgent ? "destructive" : "outline"}
+                size="sm"
+                className="flex items-center gap-2"
+                onClick={() => handleTopicNeedingContentSelect(topic)}
               >
-                {domain.label}
-              </Badge>
+                {topic.title}
+                <Badge variant={topic.urgent ? "destructive" : "secondary"} className="ml-1">
+                  {topic.contentCount}
+                </Badge>
+              </Button>
             ))}
           </div>
-        </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
-        {/* Display currently selected topic if any */}
-        {selectedTopic && (
+  // Render the selected topic card
+  const renderSelectedTopic = () => {
+    if (!selectedTopic) return null;
+    
+    return (
+      <Card className="mt-4">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg">Select Target Topic</CardTitle>
+          <CardDescription>Content will be added to this topic</CardDescription>
+        </CardHeader>
+        <CardContent>
           <div className="px-3 py-2 bg-muted rounded-md">
             <div className="text-xs text-muted-foreground">Selected Topic:</div>
             <div className="font-medium">{selectedTopic.title}</div>
           </div>
-        )}
+        </CardContent>
+      </Card>
+    );
+  };
 
-        {/* Search button */}
-        <Button type="submit" disabled={isSearching || !selectedTopic}>
-          {isSearching ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {searchStatus === 'pending' ? 'Searching...' : 'Starting...'}
-            </>
-          ) : (
-            "Search"
-          )}
-        </Button>
-      </form>
+  return (
+    <div className="space-y-4">
+      {/* 1. Topics Needing Content */}
+      {renderTopicsNeedingContent()}
+      
+      {/* 2. Search For Learning Content */}
+      <div className="space-y-4 p-4 border rounded-lg bg-card mt-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-medium">Search for Learning Content</h3>
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleClearCache}
+            disabled={isClearingCache}
+          >
+            {isClearingCache ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-1" />
+            )}
+            Clear Cache
+          </Button>
+        </div>
+        
+        <form onSubmit={handleSearch} className="space-y-4">
+          {/* Search input with topic autocomplete */}
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search by topic name..."
+                className="pl-8"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSelectedTopic(null); // Clear selected topic when input changes
+                }}
+                disabled={isSearching}
+              />
+              {isLoadingSuggestions && (
+                <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+
+            {/* Topic suggestions accordion */}
+            {topicSuggestions.length > 0 && (
+              <Accordion
+                type="single"
+                collapsible
+                className="border rounded-md"
+                value={accordionOpen}
+                onValueChange={setAccordionOpen}
+              >
+                <AccordionItem value="suggestions" className="border-0">
+                  <AccordionTrigger className="px-4 py-2 text-sm hover:no-underline">
+                    <span className="flex items-center">
+                      <span>Topic Suggestions</span>
+                      <Badge className="ml-2" variant="secondary">
+                        {topicSuggestions.length}
+                      </Badge>
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="max-h-60 overflow-y-auto">
+                      {topicSuggestions.map((topic) => (
+                        <div
+                          key={topic.id}
+                          className={`p-2 text-sm hover:bg-accent hover:text-accent-foreground cursor-pointer ${
+                            selectedTopic?.id === topic.id ? 'bg-accent text-accent-foreground' : ''
+                          }`}
+                          onClick={() => handleSelectTopic(topic)}
+                        >
+                          <div className="font-medium">{topic.title}</div>
+                          <div className="text-xs text-muted-foreground line-clamp-2">
+                            {topic.description}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            )}
+          </div>
+
+          {/* Status message and progress indicator */}
+          {renderStatusMessage()}
+
+          {/* Domain selection */}
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">Select a platform to search:</p>
+            <div className="flex flex-wrap gap-2">
+              {searchDomains.map((domain) => (
+                <Badge
+                  key={domain.value}
+                  variant={selectedDomain === domain.value ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => handleDomainChange(domain.value)}
+                >
+                  {domain.label}
+                </Badge>
+              ))}
+            </div>
+          </div>
+
+          {/* Search button */}
+          <Button type="submit" disabled={isSearching || !selectedTopic}>
+            {isSearching ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {searchStatus === 'pending' ? 'Searching...' : 'Starting...'}
+              </>
+            ) : (
+              "Search"
+            )}
+          </Button>
+        </form>
+      </div>
+
+      {/* 3. Selected Target Topic */}
+      {renderSelectedTopic()}
     </div>
   );
 }

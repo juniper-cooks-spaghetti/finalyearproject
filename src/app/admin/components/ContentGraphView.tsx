@@ -324,7 +324,7 @@ export function ContentGraphView() {
           </p>
           <Button variant="outline" size="sm" asChild>
             <Link href="/admin/content">
-              Manage Topics
+              Manage Topic Contents
             </Link>
           </Button>
         </CardFooter>
