@@ -45,6 +45,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { RoadmapSelector, RoadmapOption } from "@/components/ui/roadmap-selector";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -127,15 +128,19 @@ export function TopicTable({ topics }: { topics: Topic[] }) {
     },
   });
 
-  // Fetch all roadmaps for create dialog
-  const fetchAllRoadmaps = async () => {
+  // Fetch all roadmaps for create/edit dialogs
+  const fetchAllRoadmaps = async (): Promise<void> => {
     setIsLoadingRoadmaps(true);
     try {
       // Use our getAllRoadmaps function to get all roadmaps
       const result = await getAllRoadmaps();
       
       if (result.success && result.roadmapOptions) {
-        console.log("Fetched roadmaps:", result.roadmapOptions);
+        console.log("============ FETCH ALL ROADMAPS =============");
+        console.log("Total roadmaps fetched:", result.roadmapOptions.length);
+        console.log("Roadmap options:", result.roadmapOptions);
+        console.log("============================================");
+        
         setAvailableRoadmaps(result.roadmapOptions);
       } else {
         throw new Error(result.error || "Failed to fetch roadmaps");
@@ -239,6 +244,13 @@ export function TopicTable({ topics }: { topics: Topic[] }) {
       const result = await getTopicEditData(topic.id);
       
       if (result.success && result.topic && result.roadmapOptions && result.assignedRoadmapIds) {
+        // Debug logging for roadmaps
+        console.log("============ EDIT TOPIC =============");
+        console.log("Topic being edited:", result.topic.title);
+        console.log("All available roadmaps:", result.roadmapOptions);
+        console.log("Current assigned roadmap IDs:", result.assignedRoadmapIds);
+        console.log("====================================");
+        
         setAvailableRoadmaps(result.roadmapOptions);
         
         // Reset form with values from the server
@@ -753,11 +765,11 @@ export function TopicTable({ topics }: { topics: Topic[] }) {
                       <FormItem>
                         <FormLabel>Assign to Roadmaps</FormLabel>
                         <FormControl>
-                          <MultiSelect
-                            options={availableRoadmaps}
-                            selected={field.value || []}
+                          <RoadmapSelector
+                            allRoadmaps={availableRoadmaps}
+                            selectedRoadmapIds={field.value}
                             onChange={field.onChange}
-                            placeholder="Select roadmaps"
+                            onRefresh={fetchAllRoadmaps}
                             loading={isLoadingRoadmaps}
                           />
                         </FormControl>
@@ -897,11 +909,11 @@ export function TopicTable({ topics }: { topics: Topic[] }) {
                       <FormItem>
                         <FormLabel>Assigned Roadmaps</FormLabel>
                         <FormControl>
-                          <MultiSelect
-                            options={availableRoadmaps}
-                            selected={field.value || []}
+                          <RoadmapSelector
+                            allRoadmaps={availableRoadmaps}
+                            selectedRoadmapIds={field.value}
                             onChange={field.onChange}
-                            placeholder="Select roadmaps"
+                            onRefresh={fetchAllRoadmaps}
                             loading={isLoadingRoadmaps}
                           />
                         </FormControl>

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { X, Check, ChevronsUpDown, Loader2, RefreshCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -20,6 +20,7 @@ interface MultiSelectProps {
   placeholder?: string;
   className?: string;
   loading?: boolean;
+  onRefresh?: () => Promise<void>;
 }
 
 export function MultiSelect({
@@ -29,8 +30,10 @@ export function MultiSelect({
   placeholder = "Select options",
   className,
   loading = false,
+  onRefresh,
 }: MultiSelectProps) {
   const [open, setOpen] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
 
   // Debug logging
   React.useEffect(() => {
@@ -49,6 +52,20 @@ export function MultiSelect({
       onChange(selected.filter((item) => item !== value));
     } else {
       onChange([...selected, value]);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (onRefresh) {
+      setIsRefreshing(true);
+      try {
+        await onRefresh();
+        console.log("Refreshed available options");
+      } catch (error) {
+        console.error("Failed to refresh options:", error);
+      } finally {
+        setIsRefreshing(false);
+      }
     }
   };
 
@@ -121,6 +138,25 @@ export function MultiSelect({
         <Command>
           <CommandInput placeholder="Search options..." />
           <CommandEmpty>No options found.</CommandEmpty>
+          {onRefresh && (
+            <div className="px-2 py-1.5 text-sm flex items-center justify-between">
+              <span className="text-muted-foreground">Available options</span>
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                className="h-8 px-2 text-xs flex items-center gap-1"
+                onClick={handleRefresh}
+                disabled={isRefreshing || loading}
+              >
+                {isRefreshing ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <RefreshCcw className="h-3 w-3 mr-1" />
+                )}
+                Refresh
+              </Button>
+            </div>
+          )}
           <CommandGroup className="max-h-64 overflow-auto">
             {options.map((option) => (
               <CommandItem
