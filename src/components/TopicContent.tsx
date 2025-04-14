@@ -392,6 +392,13 @@ export function TopicContent({
             )}
           </>
         )}
+        {/* For readOnly mode, just display the status text instead of a dropdown */}
+        {readOnly && (
+          <span className="text-sm text-muted-foreground px-2 py-1">
+            {completion.status === 'not_started' ? 'Not Started' : 
+             completion.status === 'in_progress' ? 'In Progress' : 'Completed'}
+          </span>
+        )}
       </div>
       {!readOnly && (
         <Button
@@ -445,12 +452,14 @@ export function TopicContent({
           </p>
         )}
         
-        {!readOnly && (
+        {/* Only render SuggestContentDialog if not in readOnly mode */}
+        {showSuggestDialog && !readOnly && (
           <SuggestContentDialog
             isOpen={showSuggestDialog}
             onClose={() => setShowSuggestDialog(false)}
             topicId={topic.id}
-                      />
+            onContentAdded={handleContentAdded} // Make sure this prop is passed
+          />
         )}
       </div>
     );

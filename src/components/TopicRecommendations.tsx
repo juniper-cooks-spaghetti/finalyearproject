@@ -100,12 +100,7 @@ export function TopicRecommendations({
                     </span>
                     <div className="flex items-center">
                       <span className="mr-1">Confidence:</span>
-                      <div className="w-16 h-2 bg-gray-200 rounded-full">
-                        <div 
-                          className="h-full bg-primary rounded-full" 
-                          style={{ width: `${Math.round(rec.weight * 100)}%` }}
-                        ></div>
-                      </div>
+                      <span className="text-xs">{(rec.weight * 100).toFixed(1)}%</span>
                     </div>
                   </div>
                 </div>

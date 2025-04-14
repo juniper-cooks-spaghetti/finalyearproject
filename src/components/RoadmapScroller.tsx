@@ -314,6 +314,7 @@ export default function RoadmapScroller({
             setSelectedTopic(null);
             refreshData(); // Refresh after delete
           }}
+          readOnly={readOnly} // Make sure readOnly is explicitly passed
           onDataChange={handleDataChange} // Pass the handler here
         />
       )}

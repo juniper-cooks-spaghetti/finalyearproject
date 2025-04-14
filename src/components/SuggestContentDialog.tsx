@@ -19,12 +19,14 @@ interface SuggestContentDialogProps {
   isOpen: boolean;
   onClose: () => void;
   topicId: string;
+  onContentAdded?: () => void; // Add this callback prop
 }
 
 export function SuggestContentDialog({
   isOpen,
   onClose,
-  topicId
+  topicId,
+  onContentAdded
 }: SuggestContentDialogProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -58,6 +60,12 @@ export function SuggestContentDialog({
         title: "Content Suggested",
         description: "Thank you for your contribution!"
       });
+      
+      // Call the callback if it exists
+      if (onContentAdded) {
+        onContentAdded();
+      }
+      
       onClose();
     } catch (error) {
       toast({
