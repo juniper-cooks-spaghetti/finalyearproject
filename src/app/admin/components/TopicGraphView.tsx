@@ -53,6 +53,25 @@ interface TopicAnalytics {
 // Colors for the pie chart
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#FF5733'];
 
+// Custom type for the pie chart label renderer props
+interface CustomizedLabelProps {
+  cx: number;
+  cy: number;
+  midAngle: number;
+  innerRadius: number;
+  outerRadius: number;
+  percent: number;
+  index: number;
+  name: string;
+}
+
+// Custom type for pie chart data
+interface PieChartData {
+  name: string;
+  value: number;
+  percent?: number;
+}
+
 export function TopicGraphView() {
   const [analytics, setAnalytics] = useState<TopicAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,12 +128,43 @@ export function TopicGraphView() {
   }
 
   // Data for the topic status pie chart
-  const topicStatusData = [
-    { name: 'Completed', value: analytics.overall.topicsCompleted },
-    { name: 'In Progress', value: analytics.overall.topicsInProgress },
-    { name: 'Skipped', value: analytics.overall.skippedTopics },
-    { name: 'Not Started', value: analytics.overall.totalAssignedTopics - analytics.overall.topicsCompleted - analytics.overall.topicsInProgress - analytics.overall.skippedTopics },
-  ];
+  const topicStatusData: PieChartData[] = [
+    { name: 'Completed', value: Math.max(0, analytics.overall.topicsCompleted) },
+    { name: 'In Progress', value: Math.max(0, analytics.overall.topicsInProgress) },
+    { name: 'Skipped', value: Math.max(0, analytics.overall.skippedTopics) },
+    { name: 'Not Started', value: Math.max(0, analytics.overall.totalAssignedTopics - 
+                                             analytics.overall.topicsCompleted - 
+                                             analytics.overall.topicsInProgress - 
+                                             analytics.overall.skippedTopics) },
+  ].filter(item => item.value > 0); // Filter out zero values for better chart display
+
+  // Calculate percentages for the legend
+  const totalValue = topicStatusData.reduce((sum, item) => sum + item.value, 0);
+  const topicStatusDataWithPercent = topicStatusData.map(item => ({
+    ...item,
+    percent: totalValue > 0 ? (item.value / totalValue * 100) : 0
+  }));
+
+  // Custom legend renderer to show percentages
+  const renderCustomLegend = (props: any) => {
+    const { payload } = props;
+    
+    return (
+      <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mt-4">
+        {payload.map((entry: any, index: number) => (
+          <div key={`legend-item-${index}`} className="flex items-center">
+            <div 
+              className="w-3 h-3 mr-1" 
+              style={{ backgroundColor: entry.color }}
+            />
+            <span className="text-sm">
+              {entry.value}: {topicStatusDataWithPercent.find(item => item.name === entry.value)?.percent.toFixed(0)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="mt-6 space-y-6">
@@ -178,26 +228,26 @@ export function TopicGraphView() {
             <CardDescription>Overview of topic progress statuses</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={topicStatusData}
+                    data={topicStatusDataWithPercent}
                     cx="50%"
                     cy="50%"
-                    labelLine={true}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}
                     outerRadius={100}
                     fill="#8884d8"
                     dataKey="value"
                   >
-                    {topicStatusData.map((entry, index) => (
+                    {topicStatusDataWithPercent.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip 
-                    formatter={(value) => [`${value} topics`, '']}
+                    formatter={(value: number) => [`${value} topics`, '']}
                   />
+                  <Legend content={renderCustomLegend} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -319,14 +369,7 @@ export function TopicGraphView() {
                       width={120}
                       tick={{ fontSize: 12 }}
                     />
-                    <Tooltip formatter={(value) => {
-                      // Check if value is a number before calling toFixed
-                      if (typeof value === 'number') {
-                        return [`${value.toFixed(1)}/5`, 'Difficulty'];
-                      }
-                      // Return a fallback for non-number values
-                      return [`${value}/5`, 'Difficulty'];
-                    }} />
+                    <Tooltip formatter={(value: number) => [`${value.toFixed(1)}/5`, 'Difficulty']} />
                     <Bar dataKey="averageDifficulty" name="Difficulty" fill="#FF8042" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -354,7 +397,7 @@ export function TopicGraphView() {
                       width={120}
                       tick={{ fontSize: 12 }}
                     />
-                    <Tooltip formatter={(value) => [`${value} min`, 'Time']} />
+                    <Tooltip formatter={(value: number) => [`${value} min`, 'Time']} />
                     <Bar dataKey="averageTimeSpent" name="Time (min)" fill="#0088FE" />
                   </BarChart>
                 </ResponsiveContainer>
