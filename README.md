@@ -1,4 +1,8 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+CircuitLearn is a NTU Final Year Project created by Gregory Isaac Koesno from the NTU Undergraduate Programme under EEE.
+The platofrm was created with the goal of promoting "life-long learning" practices amongst the NTU EEE MSc students. 
+With this in mind, the application supports it's userbase with the usage of roadmap data systems, which aggregate content for specific topics and recommend pathways towards learning new topics as well. The website supports admin and user functionality within a single deployment using vercel, and runs authorization using Clerk. Furthermore scraping functionalities are funneled through the Apify API, which combs Google SERP for new content on a rolling basis.
+
+Github Repository: 
 
 ## Getting Started
 
@@ -19,6 +23,10 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## API Setup
+
+Ensure that an environment local file is created with the relevant API keys from both Clerk and Apify to experience full functionality of the website. Upon deployment environment variables should be migrated to Vercel.
 
 ## Learn More
 
