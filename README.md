@@ -2,7 +2,7 @@ CircuitLearn is a NTU Final Year Project created by Gregory Isaac Koesno from th
 The platofrm was created with the goal of promoting "life-long learning" practices amongst the NTU EEE MSc students. 
 With this in mind, the application supports it's userbase with the usage of roadmap data systems, which aggregate content for specific topics and recommend pathways towards learning new topics as well. The website supports admin and user functionality within a single deployment using vercel, and runs authorization using Clerk. Furthermore scraping functionalities are funneled through the Apify API, which combs Google SERP for new content on a rolling basis.
 
-Github Repository: 
+Github Repository: https://github.com/juniper-cooks-spaghetti/finalyearproject
 
 ## Getting Started
 
